@@ -88,7 +88,7 @@ def transcribe_assemblyai(audio_path: str):
     audio_path = _upsample_to_wav(audio_path)
 
     config = aai.TranscriptionConfig(
-        speech_models        = ["universal-3-pro"],  # best model, now using 16kHz audio
+        speech_models        = ["universal-3-pro", "universal-2"],  # v3-pro for quality + v2 for Hindi
         speaker_labels       = True,
         language_detection   = True,             # auto-detect Hindi/English mix
         punctuate            = True,
