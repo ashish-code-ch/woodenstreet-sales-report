@@ -1,1 +1,18 @@
 .venv/
+
+# API keys & tokens — never commit these
+assemblyai_key
+assemblyai_key.txt
+huggingFaceToken*.txt
+*_key.txt
+*_token.txt
+
+# Audio files & generated transcripts
+recording/
+transcripts/
+*_16k.wav
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
