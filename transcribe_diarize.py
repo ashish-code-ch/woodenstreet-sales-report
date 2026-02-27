@@ -24,7 +24,8 @@ COMPUTE_TYPE  = "float16"   # float16 on GPU | int8 on CPU
 DEVICE        = "cuda"
 
 # Speaker count — set NUM_SPEAKERS to exact int if known, else use min/max
-NUM_SPEAKERS  = None
+# For a known 2-speaker call (agent + customer), set this to 2 for better boundaries
+NUM_SPEAKERS  = 2
 MIN_SPEAKERS  = 2
 MAX_SPEAKERS  = 4
 
@@ -198,9 +199,27 @@ def assign_speaker_to_word(word: dict, speaker_segs: list) -> str:
         ov = max(0.0, min(we, sp["end"]) - max(ws, sp["start"]))
         if ov > best_ov:
             best_ov, best_spk = ov, sp["speaker"]
-    # Fallback: nearest speaker by midpoint if no overlap found
-    if best_spk == "UNKNOWN":
-        mid = (ws + we) / 2
+
+    if best_spk != "UNKNOWN":
+        return best_spk
+
+    # Word falls in a gap between segments — use the immediately preceding
+    # segment (speaker who just spoke tends to keep speaking across tiny gaps)
+    mid = (ws + we) / 2
+    before = [s for s in speaker_segs if s["end"] <= ws]
+    after  = [s for s in speaker_segs if s["start"] >= we]
+    if before and after:
+        prev_seg = max(before, key=lambda s: s["end"])
+        next_seg = min(after,  key=lambda s: s["start"])
+        gap_to_prev = mid - prev_seg["end"]
+        gap_to_next = next_seg["start"] - mid
+        # Bias toward previous speaker: only switch if next segment is clearly closer
+        best_spk = prev_seg["speaker"] if gap_to_prev <= gap_to_next * 1.5 else next_seg["speaker"]
+    elif before:
+        best_spk = max(before, key=lambda s: s["end"])["speaker"]
+    elif after:
+        best_spk = min(after, key=lambda s: s["start"])["speaker"]
+    else:
         best_spk = min(speaker_segs, key=lambda s: abs((s["start"] + s["end"]) / 2 - mid))["speaker"]
     return best_spk
 
@@ -281,6 +300,89 @@ def filter_hallucinations(turns: list) -> list:
     return clean
 
 
+# ── Post-processing: fix fragmented diarization ───────────────────────────────
+def _merge_two_turns(t1: dict, t2: dict) -> dict:
+    """Merge t2 into t1 (keep t1's speaker for all words)."""
+    all_words = t1["words"] + t2["words"]
+    for w in all_words:
+        w["speaker"] = t1["speaker"]
+    return _make_turn(all_words)
+
+
+def fix_fragmented_turns(turns: list,
+                         sandwich_min_words: int = 5,
+                         edge_min_words: int = 3) -> list:
+    """
+    Fix diarization fragmentation caused by imprecise pyannote boundaries.
+
+    Three passes (iterated until stable):
+      1. Sandwich: A-B-A where B has ≤ sandwich_min_words → merge all into A.
+         Uses a slightly higher threshold than edges because mid-conversation
+         boundary errors tend to produce slightly longer mis-attributed segments.
+      2. Consecutive same-speaker turns → merge (handles pass-1 side-effects).
+      3. Leading/trailing micro-turns: if a turn has ≤ edge_min_words and it's
+         the first or last turn, merge with its neighbor.
+    """
+    if not turns:
+        return turns
+
+    merged_count = 0
+    for _ in range(10):  # iterate until stable
+        changed = False
+
+        # Pass 1: A-B-A sandwich
+        new_turns = []
+        i = 0
+        while i < len(turns):
+            if (i + 2 < len(turns) and
+                    turns[i]["speaker"] == turns[i + 2]["speaker"] and
+                    turns[i + 1]["word_count"] <= sandwich_min_words):
+                base = _merge_two_turns(turns[i], turns[i + 1])
+                merged = _merge_two_turns(base, turns[i + 2])
+                new_turns.append(merged)
+                merged_count += 2
+                i += 3
+                changed = True
+            else:
+                new_turns.append(turns[i])
+                i += 1
+        turns = new_turns
+
+        # Pass 2: consecutive same-speaker
+        new_turns = []
+        for t in turns:
+            if new_turns and new_turns[-1]["speaker"] == t["speaker"]:
+                new_turns[-1] = _merge_two_turns(new_turns[-1], t)
+                merged_count += 1
+                changed = True
+            else:
+                new_turns.append(t)
+        turns = new_turns
+
+        # Pass 3: micro leading/trailing turns
+        if len(turns) >= 2 and turns[0]["word_count"] <= edge_min_words:
+            merged_words = turns[0]["words"] + turns[1]["words"]
+            for w in merged_words:
+                w["speaker"] = turns[1]["speaker"]
+            turns = [_make_turn(merged_words)] + turns[2:]
+            merged_count += 1
+            changed = True
+        if len(turns) >= 2 and turns[-1]["word_count"] <= edge_min_words:
+            merged_words = turns[-2]["words"] + turns[-1]["words"]
+            for w in merged_words:
+                w["speaker"] = turns[-2]["speaker"]
+            turns = turns[:-2] + [_make_turn(merged_words)]
+            merged_count += 1
+            changed = True
+
+        if not changed:
+            break
+
+    if merged_count:
+        print(f"      Fragmentation fix: merged {merged_count} micro-turns", flush=True)
+    return turns
+
+
 # ── Output ────────────────────────────────────────────────────────────────────
 def save_outputs(turns: list, transcription_info: dict, audio_path: str):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -337,20 +439,21 @@ def main():
     print("[0/3] Loading audio via PyAV ...", flush=True)
     audio_16k, orig_sr = load_audio(AUDIO_FILE, target_sr=WHISPER_SR)
     audio_mono         = audio_16k[0] if audio_16k.ndim > 1 else audio_16k
-    audio_orig, _      = load_audio(AUDIO_FILE, target_sr=orig_sr)
     print(f"      {len(audio_mono)/WHISPER_SR:.1f} sec | Orig SR: {orig_sr} Hz", flush=True)
 
     # 1. Transcribe → words with timestamps
     words, t_info = transcribe(audio_mono)
 
-    # 2. Diarize → speaker segments
-    speaker_segs = diarize(audio_orig, orig_sr)
+    # 2. Diarize — pass 16kHz audio so pyannote gets better speaker embeddings
+    #    (avoid double-resampling from 8kHz; pyannote operates natively at 16kHz)
+    speaker_segs = diarize(audio_16k, WHISPER_SR)
 
     # 3. Word-level alignment → turns
     print("[3/3] Word-level speaker alignment ...", flush=True)
     turns = build_turns(words, speaker_segs)
     turns = filter_hallucinations(turns)
-    print(f"      Turns after filtering: {len(turns)}", flush=True)
+    turns = fix_fragmented_turns(turns, sandwich_min_words=5, edge_min_words=3)
+    print(f"      Turns after fixing: {len(turns)}", flush=True)
 
     # Save
     txt_path, json_path = save_outputs(turns, t_info, AUDIO_FILE)
@@ -362,7 +465,8 @@ def main():
         preview = t["text"][:90] + ("…" if len(t["text"]) > 90 else "")
         print(f"  {t['speaker']:12s} {ts}  {preview}")
     print("─" * 65)
-    print(f"Done.  {len(turns)} turns | {sum(t['word_count'] for t in turns)} words", flush=True)
+    print(f"Done.  {len(turns)} turns | {sum(t['word_count'] for t in turns)} words",
+          flush=True)
 
 
 if __name__ == "__main__":
