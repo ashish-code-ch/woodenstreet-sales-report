@@ -28,20 +28,31 @@ NUM_SPEAKERS  = None
 MIN_SPEAKERS  = 2
 MAX_SPEAKERS  = 4
 
-LANGUAGE       = None    # None = auto-detect per segment (handles Hindi/English switching)
-TASK           = "translate"   # "translate" → always output English regardless of input lang
-                               # "transcribe" → output in original language
-INITIAL_PROMPT = "This is a customer support call about furniture. The speakers switch between Hindi and English."
+LANGUAGE       = None        # None = auto-detect per segment (handles Hindi/English switching)
+TASK           = "translate" # "translate" → always output English regardless of input lang
+                             # "transcribe" → output in original language
+INITIAL_PROMPT = "This is a customer support call about furniture orders. Agent and customer alternate speaking."
 
-# VAD tuning for code-switching audio (Hindi ↔ English)
-# Looser settings: don't cut mid-sentence on a language switch
+# VAD — tighter than before so noise/hold-music is NOT passed to Whisper
 VAD_PARAMS = dict(
-    threshold                = 0.4,    # lower = catch more speech (less aggressive cutoff)
-    min_speech_duration_ms   = 200,    # catch short Hindi interjections
+    threshold                = 0.5,    # raised from 0.4; filters more noise
+    min_speech_duration_ms   = 200,
     max_speech_duration_s    = float("inf"),
-    min_silence_duration_ms  = 600,    # shorter gap needed — speakers switch quickly
-    speech_pad_ms            = 600,    # wider padding around speech regions
+    min_silence_duration_ms  = 600,    # still loose enough for code-switching pauses
+    speech_pad_ms            = 400,
 )
+
+# Anti-hallucination thresholds
+# compression_ratio: text with ratio > threshold is likely a repetition loop (e.g. "Yes Yes Yes")
+# log_prob_threshold: segments with avg log-prob below this are too uncertain → discard
+# no_speech_threshold: if no-speech prob > this → discard the segment entirely
+# hallucination_silence_threshold: suppress output for silence gaps longer than N seconds
+COMPRESSION_RATIO_THRESHOLD    = 1.8   # default 2.4; stricter = fewer repetition hallucinations
+LOG_PROB_THRESHOLD             = -1.0
+NO_SPEECH_THRESHOLD            = 0.6
+HALLUCINATION_SILENCE_THRESHOLD = 2.0  # key param: kills "camera" style insertions in pauses
+REPETITION_PENALTY             = 1.3   # penalise generating the same token again
+NO_REPEAT_NGRAM_SIZE           = 5     # block repeating any 5-gram
 # ─────────────────────────────────────────────────────────────────────────────
 
 WHISPER_SR = 16000
@@ -95,16 +106,22 @@ def transcribe(audio_mono: np.ndarray):
 
     segments_gen, info = model.transcribe(
         audio_mono,
-        language=LANGUAGE,          # None = auto-detect
-        task=TASK,                  # "translate" forces English output
+        language=LANGUAGE,
+        task=TASK,
         initial_prompt=INITIAL_PROMPT,
         beam_size=5,
-        best_of=5,
+        best_of=1,                              # only meaningful with temperature > 0
         word_timestamps=True,
-        condition_on_previous_text=True,   # helps continuity across language switches
+        condition_on_previous_text=False,       # ← KEY: prevents cascade hallucinations
         vad_filter=True,
         vad_parameters=VAD_PARAMS,
-        temperature=[0.0, 0.2, 0.4],      # fallback temps if low confidence
+        temperature=0.0,                        # greedy only — fallback temps add hallucinations
+        compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
+        log_prob_threshold=LOG_PROB_THRESHOLD,
+        no_speech_threshold=NO_SPEECH_THRESHOLD,
+        hallucination_silence_threshold=HALLUCINATION_SILENCE_THRESHOLD,
+        repetition_penalty=REPETITION_PENALTY,
+        no_repeat_ngram_size=NO_REPEAT_NGRAM_SIZE,
     )
 
     words = []
@@ -231,6 +248,39 @@ def _make_turn(words: list) -> dict:
     }
 
 
+# ── Post-processing: remove hallucination turns ───────────────────────────────
+import re as _re
+
+def _is_repetition_hallucination(text: str) -> bool:
+    """Detect 'Yes. Yes. Yes.' style repetition loops."""
+    words = text.split()
+    if len(words) < 6:
+        return False
+    # If any single word makes up >50% of all words it's a loop
+    from collections import Counter
+    top_word, top_count = Counter(words).most_common(1)[0]
+    return top_count / len(words) > 0.5
+
+def filter_hallucinations(turns: list) -> list:
+    """Remove turns that are clearly hallucinations."""
+    clean = []
+    removed = 0
+    for t in turns:
+        if _is_repetition_hallucination(t["text"]):
+            print(f"      [REMOVED hallucination] {t['speaker']} "
+                  f"[{fmt_time(t['start'])}] {t['text'][:60]}…", flush=True)
+            removed += 1
+        elif t["avg_confidence"] < 0.30 and t["word_count"] > 3:
+            print(f"      [REMOVED low-confidence] {t['speaker']} "
+                  f"[{fmt_time(t['start'])}] conf={t['avg_confidence']} {t['text'][:60]}…", flush=True)
+            removed += 1
+        else:
+            clean.append(t)
+    if removed:
+        print(f"      Hallucination filter: removed {removed} turns", flush=True)
+    return clean
+
+
 # ── Output ────────────────────────────────────────────────────────────────────
 def save_outputs(turns: list, transcription_info: dict, audio_path: str):
     os.makedirs(OUTPUT_DIR, exist_ok=True)
@@ -299,7 +349,8 @@ def main():
     # 3. Word-level alignment → turns
     print("[3/3] Word-level speaker alignment ...", flush=True)
     turns = build_turns(words, speaker_segs)
-    print(f"      Turns: {len(turns)}", flush=True)
+    turns = filter_hallucinations(turns)
+    print(f"      Turns after filtering: {len(turns)}", flush=True)
 
     # Save
     txt_path, json_path = save_outputs(turns, t_info, AUDIO_FILE)
