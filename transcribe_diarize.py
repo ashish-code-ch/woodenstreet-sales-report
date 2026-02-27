@@ -97,18 +97,32 @@ def load_audio(path: str, target_sr: int):
     return audio, orig_sr
 
 
+# ── Model loading (once for the whole batch) ─────────────────────────────────
+def load_models():
+    """Load Whisper and pyannote once; caller reuses them for every file."""
+    from faster_whisper import WhisperModel
+    import torch
+    from pyannote.audio import Pipeline
+
+    print(f"\nLoading faster-whisper/{WHISPER_MODEL} on {DEVICE} ...", flush=True)
+    whisper = WhisperModel(WHISPER_MODEL, device=DEVICE, compute_type=COMPUTE_TYPE)
+
+    print("Loading pyannote/speaker-diarization-3.1 ...", flush=True)
+    pyannote_pipeline = Pipeline.from_pretrained(
+        "pyannote/speaker-diarization-3.1", token=HF_TOKEN
+    )
+    pyannote_pipeline.to(torch.device(DEVICE))
+    print("Models ready.\n", flush=True)
+    return whisper, pyannote_pipeline
+
+
 # ── Step 1: Transcribe with word timestamps ───────────────────────────────────
-def transcribe(audio_mono: np.ndarray):
+def transcribe(audio_mono: np.ndarray, model):
     """
     Run faster-whisper and return:
       - flat list of words: {word, start, end, confidence}
       - transcription info dict
     """
-    from faster_whisper import WhisperModel
-
-    print(f"[1/3] Loading faster-whisper/{WHISPER_MODEL} on {DEVICE} ...", flush=True)
-    model = WhisperModel(WHISPER_MODEL, device=DEVICE, compute_type=COMPUTE_TYPE)
-
     dur = len(audio_mono) / WHISPER_SR
     print(f"[1/3] Transcribing {dur:.1f} sec (task={TASK}, lang=auto) ...", flush=True)
 
@@ -159,27 +173,19 @@ def transcribe(audio_mono: np.ndarray):
 
 
 # ── Step 2: Speaker diarization ───────────────────────────────────────────────
-def diarize(audio_np: np.ndarray, orig_sr: int):
+def diarize(audio_np: np.ndarray, orig_sr: int, pipeline):
     """
-    Run pyannote 4.x diarization using pre-loaded waveform tensor.
+    Run pyannote 4.x diarization using a pre-loaded pipeline.
     Returns list of {start, end, speaker}.
     """
     import torch
-    from pyannote.audio import Pipeline
 
-    print("[2/3] Loading pyannote/speaker-diarization-3.1 ...", flush=True)
-    pipeline = Pipeline.from_pretrained(
-        "pyannote/speaker-diarization-3.1",
-        token=HF_TOKEN,
-    )
-    pipeline.to(torch.device(DEVICE))
-
+    print("[2/3] Running diarization ...", flush=True)
     waveform = torch.from_numpy(audio_np)
     if waveform.ndim == 1:
         waveform = waveform.unsqueeze(0)
     audio_input = {"waveform": waveform, "sample_rate": orig_sr}
 
-    print("[2/3] Running diarization ...", flush=True)
     kwargs = {"num_speakers": NUM_SPEAKERS} if NUM_SPEAKERS else \
              {"min_speakers": MIN_SPEAKERS, "max_speakers": MAX_SPEAKERS}
     result = pipeline(audio_input, **kwargs)
@@ -430,9 +436,9 @@ def save_outputs(turns: list, transcription_info: dict, audio_path: str):
 
 
 # ── Single-file pipeline ──────────────────────────────────────────────────────
-def process_file(audio_path: str) -> bool:
+def process_file(audio_path: str, whisper_model, pyannote_pipeline) -> bool:
     """
-    Run the full pipeline on one audio file.
+    Run the full pipeline on one audio file using pre-loaded models.
     Returns True on success, False on error.
     """
     print("=" * 65, flush=True)
@@ -452,10 +458,10 @@ def process_file(audio_path: str) -> bool:
               flush=True)
 
         # 1. Transcribe → words with timestamps
-        words, t_info = transcribe(audio_mono)
+        words, t_info = transcribe(audio_mono, whisper_model)
 
         # 2. Diarize — pass 16kHz audio so pyannote gets better speaker embeddings
-        speaker_segs = diarize(audio_16k, WHISPER_SR)
+        speaker_segs = diarize(audio_16k, WHISPER_SR, pyannote_pipeline)
 
         # 3. Word-level alignment → turns
         print("[3/3] Word-level speaker alignment ...", flush=True)
@@ -507,6 +513,9 @@ def main():
         print(f"  • {p.name}")
     print()
 
+    # Load models once — reused across all files (avoids OOM between files)
+    whisper_model, pyannote_pipeline = load_models()
+
     succeeded, failed = [], []
 
     for i, audio_path in enumerate(audio_files, 1):
@@ -514,7 +523,7 @@ def main():
         print(f"  FILE {i}/{len(audio_files)}: {audio_path.name}")
         print(f"{'='*65}\n")
 
-        ok = process_file(str(audio_path))
+        ok = process_file(str(audio_path), whisper_model, pyannote_pipeline)
 
         # Move audio to done/ regardless of outcome (keep failed files separate)
         dest = Path(DONE_DIR) / audio_path.name
