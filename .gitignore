@@ -4,12 +4,14 @@
 assemblyai_key
 assemblyai_key.txt
 huggingFaceToken*.txt
+anthropic_key.txt
 *_key.txt
 *_token.txt
 
 # Audio files & generated transcripts
 recording/
 transcripts/
+analysis/
 *_16k.wav
 
 # Python cache
