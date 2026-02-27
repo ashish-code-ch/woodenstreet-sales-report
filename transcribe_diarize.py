@@ -5,9 +5,10 @@ High-accuracy audio transcription + speaker diarization.
   - pyannote/speaker-diarization-3.1  (GPU, pyannote 4.x API)
   - Word-level speaker alignment  (much more precise than segment-level)
   - Rich JSON output: turns with per-word timestamps, confidence, stats
+  - Batch mode: processes all audio files in INPUT_DIR, moves each to DONE_DIR
 """
 
-import os, sys, json, warnings
+import os, sys, json, warnings, shutil
 import numpy as np
 from pathlib import Path
 from datetime import datetime, timedelta
@@ -15,9 +16,15 @@ from datetime import datetime, timedelta
 warnings.filterwarnings("ignore")
 
 # ── Config ───────────────────────────────────────────────────────────────────
-AUDIO_FILE   = "/home/user/Documents/AI/SalesScorecard/recording/20250905-185051_919151117439_3245-all.mp3"
-OUTPUT_DIR   = "/home/user/Documents/AI/SalesScorecard/transcripts"
-HF_TOKEN     = open("/home/user/Documents/AI/SalesScorecard/huggingFaceToken_new.txt").read().strip()
+BASE_DIR   = "/home/user/Documents/AI/SalesScorecard"
+INPUT_DIR  = os.path.join(BASE_DIR, "recording")          # pick up audio files from here
+DONE_DIR   = os.path.join(BASE_DIR, "recording", "done")  # move audio here after processing
+OUTPUT_DIR = os.path.join(BASE_DIR, "transcripts")        # .txt and .json go here
+HF_TOKEN   = open(os.path.join(BASE_DIR, "huggingFaceToken_new.txt")).read().strip()
+
+# Audio extensions to process (PyAV handles all of these)
+AUDIO_EXTS = {".mp3", ".mpeg", ".mp4", ".m4a", ".wav", ".ogg",
+              ".flac", ".aac", ".wma", ".opus", ".webm"}
 
 WHISPER_MODEL = "large-v3"
 COMPUTE_TYPE  = "float16"   # float16 on GPU | int8 on CPU
@@ -422,51 +429,117 @@ def save_outputs(turns: list, transcription_info: dict, audio_path: str):
     return txt_path, json_path
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-def main():
-    if not os.path.isfile(AUDIO_FILE):
-        print(f"ERROR: Audio file not found: {AUDIO_FILE}")
-        sys.exit(1)
-
+# ── Single-file pipeline ──────────────────────────────────────────────────────
+def process_file(audio_path: str) -> bool:
+    """
+    Run the full pipeline on one audio file.
+    Returns True on success, False on error.
+    """
     print("=" * 65, flush=True)
     print("  HIGH-ACCURACY TRANSCRIPTION + SPEAKER DIARIZATION", flush=True)
     print("=" * 65, flush=True)
-    print(f"  File   : {AUDIO_FILE}", flush=True)
-    print(f"  Model  : {WHISPER_MODEL}  |  Diarizer: pyannote-3.1  |  Device: {DEVICE}", flush=True)
+    print(f"  File   : {audio_path}", flush=True)
+    print(f"  Model  : {WHISPER_MODEL}  |  Diarizer: pyannote-3.1  |  Device: {DEVICE}",
+          flush=True)
     print("=" * 65, flush=True)
 
-    # Load audio
-    print("[0/3] Loading audio via PyAV ...", flush=True)
-    audio_16k, orig_sr = load_audio(AUDIO_FILE, target_sr=WHISPER_SR)
-    audio_mono         = audio_16k[0] if audio_16k.ndim > 1 else audio_16k
-    print(f"      {len(audio_mono)/WHISPER_SR:.1f} sec | Orig SR: {orig_sr} Hz", flush=True)
+    try:
+        # Load audio
+        print("[0/3] Loading audio via PyAV ...", flush=True)
+        audio_16k, orig_sr = load_audio(audio_path, target_sr=WHISPER_SR)
+        audio_mono         = audio_16k[0] if audio_16k.ndim > 1 else audio_16k
+        print(f"      {len(audio_mono)/WHISPER_SR:.1f} sec | Orig SR: {orig_sr} Hz",
+              flush=True)
 
-    # 1. Transcribe → words with timestamps
-    words, t_info = transcribe(audio_mono)
+        # 1. Transcribe → words with timestamps
+        words, t_info = transcribe(audio_mono)
 
-    # 2. Diarize — pass 16kHz audio so pyannote gets better speaker embeddings
-    #    (avoid double-resampling from 8kHz; pyannote operates natively at 16kHz)
-    speaker_segs = diarize(audio_16k, WHISPER_SR)
+        # 2. Diarize — pass 16kHz audio so pyannote gets better speaker embeddings
+        speaker_segs = diarize(audio_16k, WHISPER_SR)
 
-    # 3. Word-level alignment → turns
-    print("[3/3] Word-level speaker alignment ...", flush=True)
-    turns = build_turns(words, speaker_segs)
-    turns = filter_hallucinations(turns)
-    turns = fix_fragmented_turns(turns, sandwich_min_words=5, edge_min_words=3)
-    print(f"      Turns after fixing: {len(turns)}", flush=True)
+        # 3. Word-level alignment → turns
+        print("[3/3] Word-level speaker alignment ...", flush=True)
+        turns = build_turns(words, speaker_segs)
+        turns = filter_hallucinations(turns)
+        turns = fix_fragmented_turns(turns, sandwich_min_words=5, edge_min_words=3)
+        print(f"      Turns after fixing: {len(turns)}", flush=True)
 
-    # Save
-    txt_path, json_path = save_outputs(turns, t_info, AUDIO_FILE)
+        # Save outputs
+        txt_path, json_path = save_outputs(turns, t_info, audio_path)
 
-    # Preview
-    print("\n── Preview (first 12 turns) " + "─" * 36)
-    for t in turns[:12]:
-        ts = f"[{fmt_time(t['start'])} --> {fmt_time(t['end'])}]"
-        preview = t["text"][:90] + ("…" if len(t["text"]) > 90 else "")
-        print(f"  {t['speaker']:12s} {ts}  {preview}")
-    print("─" * 65)
-    print(f"Done.  {len(turns)} turns | {sum(t['word_count'] for t in turns)} words",
-          flush=True)
+        # Preview first 5 turns
+        print("\n── Preview (first 5 turns) " + "─" * 37)
+        for t in turns[:5]:
+            ts      = f"[{fmt_time(t['start'])} --> {fmt_time(t['end'])}]"
+            preview = t["text"][:90] + ("…" if len(t["text"]) > 90 else "")
+            print(f"  {t['speaker']:12s} {ts}  {preview}")
+        print("─" * 65)
+        print(f"Done.  {len(turns)} turns | {sum(t['word_count'] for t in turns)} words",
+              flush=True)
+        return True
+
+    except Exception as exc:
+        print(f"\n  ERROR processing {os.path.basename(audio_path)}: {exc}", flush=True)
+        import traceback; traceback.print_exc()
+        return False
+
+
+# ── Main: batch-process all files in INPUT_DIR ────────────────────────────────
+def main():
+    os.makedirs(DONE_DIR,   exist_ok=True)
+    os.makedirs(OUTPUT_DIR, exist_ok=True)
+
+    # Collect audio files in INPUT_DIR (top-level only, skip done/ subfolder)
+    audio_files = sorted(
+        p for p in Path(INPUT_DIR).iterdir()
+        if p.is_file()
+        and p.suffix.lower() in AUDIO_EXTS
+        and not p.name.endswith("_16k.wav")   # skip our own temp files
+    )
+
+    if not audio_files:
+        print(f"No audio files found in {INPUT_DIR}")
+        print(f"Supported formats: {', '.join(sorted(AUDIO_EXTS))}")
+        sys.exit(0)
+
+    print(f"\nFound {len(audio_files)} file(s) to process:\n")
+    for p in audio_files:
+        print(f"  • {p.name}")
+    print()
+
+    succeeded, failed = [], []
+
+    for i, audio_path in enumerate(audio_files, 1):
+        print(f"\n{'='*65}")
+        print(f"  FILE {i}/{len(audio_files)}: {audio_path.name}")
+        print(f"{'='*65}\n")
+
+        ok = process_file(str(audio_path))
+
+        # Move audio to done/ regardless of outcome (keep failed files separate)
+        dest = Path(DONE_DIR) / audio_path.name
+        # Avoid overwrite: add suffix if name already exists in done/
+        if dest.exists():
+            stem = audio_path.stem
+            dest = Path(DONE_DIR) / f"{stem}_{datetime.now().strftime('%H%M%S')}{audio_path.suffix}"
+        shutil.move(str(audio_path), str(dest))
+        print(f"  ↳ Moved audio → {dest}", flush=True)
+
+        if ok:
+            succeeded.append(audio_path.name)
+        else:
+            failed.append(audio_path.name)
+
+    # Final summary
+    print(f"\n{'='*65}")
+    print(f"  BATCH COMPLETE  —  {len(succeeded)} succeeded, {len(failed)} failed")
+    print(f"{'='*65}")
+    if succeeded:
+        print(f"  Transcripts in : {OUTPUT_DIR}")
+        print(f"  Audio moved to : {DONE_DIR}")
+    if failed:
+        print(f"  Failed files   : {', '.join(failed)}")
+    print()
 
 
 if __name__ == "__main__":
