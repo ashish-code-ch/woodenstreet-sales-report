@@ -1,0 +1,804 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WoodenStreet · Sales Intelligence</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+:root {
+  --bg:#0f1117; --surface:#1a1d27; --surface2:#232635; --border:#2e3147;
+  --accent:#f97316; --blue:#3b82f6; --green:#22c55e; --red:#ef4444;
+  --yellow:#eab308; --purple:#a855f7; --cyan:#06b6d4;
+  --text:#e2e8f0; --muted:#94a3b8; --dim:#64748b;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sans-serif;font-size:13px;display:flex;min-height:100vh}
+
+/* SIDEBAR */
+.sidebar{width:210px;background:var(--surface);border-right:1px solid var(--border);
+  padding:0;position:fixed;top:0;left:0;height:100vh;display:flex;flex-direction:column;z-index:10}
+.logo{padding:18px 20px;border-bottom:1px solid var(--border)}
+.logo-name{font-size:15px;font-weight:700;color:var(--accent)}
+.logo-sub{font-size:10.5px;color:var(--muted);margin-top:2px}
+.nav{flex:1;padding:12px 8px;overflow-y:auto}
+.nav-group-label{font-size:9.5px;text-transform:uppercase;letter-spacing:.1em;color:var(--dim);
+  padding:10px 10px 4px;font-weight:600}
+.nav-btn{display:flex;align-items:center;gap:9px;width:100%;padding:8px 10px;
+  border-radius:7px;border:none;background:transparent;color:var(--muted);
+  cursor:pointer;font-size:12.5px;text-align:left;transition:all .15s}
+.nav-btn:hover{background:var(--surface2);color:var(--text)}
+.nav-btn.active{background:rgba(249,115,22,.12);color:var(--accent);font-weight:600}
+.nav-icon{font-size:14px;width:18px;text-align:center}
+.nav-footer{padding:14px 16px;border-top:1px solid var(--border)}
+.nav-footer-text{font-size:10.5px;color:var(--dim);line-height:1.5}
+
+/* MAIN */
+.main{margin-left:210px;padding:28px 32px;width:calc(100% - 210px)}
+
+/* PAGE header */
+.page-hdr{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px}
+.page-title{font-size:20px;font-weight:700}
+.page-title span{color:var(--accent)}
+.page-meta{font-size:11px;color:var(--muted);margin-top:4px}
+
+/* TAB PAGES */
+.tab-page{display:none}
+.tab-page.active{display:block}
+
+/* KPI row */
+.kpi-row{display:grid;gap:14px;margin-bottom:22px}
+.kpi-row-7{grid-template-columns:repeat(7,1fr)}
+.kpi-row-4{grid-template-columns:repeat(4,1fr)}
+.kpi-row-3{grid-template-columns:repeat(3,1fr)}
+.kpi{background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:15px 14px;position:relative;overflow:hidden}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px}
+.kpi.orange::before{background:var(--accent)}
+.kpi.blue::before{background:var(--blue)}
+.kpi.green::before{background:var(--green)}
+.kpi.red::before{background:var(--red)}
+.kpi.yellow::before{background:var(--yellow)}
+.kpi.purple::before{background:var(--purple)}
+.kpi.cyan::before{background:var(--cyan)}
+.kpi-icon{font-size:18px;margin-bottom:6px}
+.kpi-val{font-size:26px;font-weight:700;line-height:1}
+.kpi-label{font-size:11px;color:var(--muted);margin-top:4px}
+.kpi-sub{font-size:10px;color:var(--dim);margin-top:3px}
+
+/* Grid */
+.g2{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px}
+.g3{display:grid;grid-template-columns:1fr 1fr 1fr;gap:18px;margin-bottom:18px}
+.g32{display:grid;grid-template-columns:3fr 2fr;gap:18px;margin-bottom:18px}
+.g23{display:grid;grid-template-columns:2fr 3fr;gap:18px;margin-bottom:18px}
+.full{margin-bottom:18px}
+
+/* Cards */
+.card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:18px 20px}
+.card-hdr{margin-bottom:14px}
+.card-title{font-size:13px;font-weight:600}
+.card-desc{font-size:11px;color:var(--muted);margin-top:3px;line-height:1.5}
+.card canvas{max-height:240px}
+
+/* Section divider */
+.sec{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;
+  color:var(--accent);border-bottom:1px solid var(--border);padding-bottom:8px;margin:24px 0 14px}
+
+/* Agent table */
+.tbl{width:100%;border-collapse:collapse}
+.tbl th{font-size:10px;text-transform:uppercase;letter-spacing:.06em;color:var(--dim);
+  font-weight:600;padding:8px 10px;text-align:left;border-bottom:1px solid var(--border)}
+.tbl td{padding:9px 10px;border-bottom:1px solid rgba(46,49,71,.4);font-size:12px;vertical-align:middle}
+.tbl tr:last-child td{border:none}
+.tbl tbody tr:hover td{background:var(--surface2)}
+.scroll{overflow-x:auto}
+
+/* Score pill */
+.sp{display:inline-block;padding:2px 9px;border-radius:5px;font-size:12px;font-weight:700}
+
+/* Progress bar */
+.pbar{height:6px;border-radius:3px;background:var(--border);overflow:hidden;flex:1}
+.pbar-fill{height:100%;border-radius:3px}
+
+/* Heatmap cell */
+.hc{padding:6px 10px!important;text-align:center!important;font-weight:600;font-size:12px}
+
+/* Voice bars */
+.vbar-row{display:flex;align-items:center;gap:10px;margin-bottom:10px}
+.vbar-label{font-size:12px;flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.vbar-track{width:120px;height:7px;border-radius:4px;background:var(--border);overflow:hidden;flex-shrink:0}
+.vbar-fill{height:100%;border-radius:4px}
+.vbar-num{font-size:11.5px;font-weight:600;color:var(--muted);width:32px;text-align:right;flex-shrink:0}
+
+/* Coaching rows */
+.cbar-row{display:flex;align-items:center;gap:10px;margin-bottom:11px}
+.cbar-label{font-size:12px;width:230px;flex-shrink:0}
+.cbar-track{flex:1;height:8px;border-radius:4px;background:var(--border);overflow:hidden}
+.cbar-fill{height:100%;border-radius:4px}
+.cbar-num{font-size:11.5px;font-weight:600;color:var(--muted);width:36px;text-align:right;flex-shrink:0}
+
+/* Insight cards */
+.insight{border-radius:9px;padding:13px 15px;border-left:3px solid;margin-bottom:11px}
+.insight.red{background:rgba(239,68,68,.07);border-color:var(--red)}
+.insight.green{background:rgba(34,197,94,.07);border-color:var(--green)}
+.insight.yellow{background:rgba(234,179,8,.07);border-color:var(--yellow)}
+.insight.blue{background:rgba(59,130,246,.07);border-color:var(--blue)}
+.insight-title{font-size:12.5px;font-weight:600;margin-bottom:4px}
+.insight-body{font-size:11.5px;color:var(--muted);line-height:1.6}
+
+/* Score dimension row */
+.dim-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.dim-name{font-size:12px;width:160px;flex-shrink:0}
+.dim-bar-wrap{flex:1;display:flex;align-items:center;gap:8px}
+.dim-score{font-size:13px;font-weight:700;width:36px;text-align:right;flex-shrink:0}
+.dim-label{font-size:10.5px;width:80px;flex-shrink:0}
+
+/* Badges */
+.badge{display:inline-block;padding:2px 8px;border-radius:12px;font-size:10.5px;font-weight:600}
+.b-green{background:rgba(34,197,94,.15);color:var(--green)}
+.b-blue{background:rgba(59,130,246,.15);color:var(--blue)}
+.b-yellow{background:rgba(234,179,8,.15);color:var(--yellow)}
+.b-red{background:rgba(239,68,68,.15);color:var(--red)}
+.b-orange{background:rgba(249,115,22,.15);color:var(--accent)}
+
+/* Tooltip callout */
+.callout{background:var(--surface2);border-radius:8px;padding:12px 14px;font-size:11.5px;color:var(--muted);line-height:1.6;margin-top:12px;border:1px solid var(--border)}
+.callout strong{color:var(--text)}
+</style>
+</head>
+<body>
+
+<!-- SIDEBAR -->
+<div class="sidebar">
+  <div class="logo">
+    <div class="logo-name">WoodenStreet</div>
+    <div class="logo-sub">BD Sales Intelligence · Oct 2025</div>
+  </div>
+  <div class="nav">
+    <div class="nav-group-label">Overview</div>
+    <button class="nav-btn active" onclick="showTab('overview',this)">
+      <span class="nav-icon">📊</span> Executive Summary
+    </button>
+    <button class="nav-btn" onclick="showTab('outcomes',this)">
+      <span class="nav-icon">🎯</span> Outcomes & Intents
+    </button>
+
+    <div class="nav-group-label">Agent Performance</div>
+    <button class="nav-btn" onclick="showTab('leaderboard',this)">
+      <span class="nav-icon">🏆</span> Leaderboard
+    </button>
+    <button class="nav-btn" onclick="showTab('heatmap',this)">
+      <span class="nav-icon">🔥</span> Skill Heatmap
+    </button>
+    <button class="nav-btn" onclick="showTab('teamscores',this)">
+      <span class="nav-icon">📈</span> Team Averages
+    </button>
+
+    <div class="nav-group-label">Customer Intelligence</div>
+    <button class="nav-btn" onclick="showTab('voice',this)">
+      <span class="nav-icon">💬</span> Voice of Customer
+    </button>
+    <button class="nav-btn" onclick="showTab('sentiment',this)">
+      <span class="nav-icon">😊</span> Sentiment & Churn
+    </button>
+
+    <div class="nav-group-label">Coaching</div>
+    <button class="nav-btn" onclick="showTab('coaching',this)">
+      <span class="nav-icon">🎓</span> Coaching Priorities
+    </button>
+    <button class="nav-btn" onclick="showTab('insights',this)">
+      <span class="nav-icon">💡</span> Key Insights
+    </button>
+  </div>
+  <div class="nav-footer">
+    <div class="nav-footer-text">799 calls analysed<br>24 agents · 3 cities<br>October 2025</div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+<!-- ══════════════════════════════════════════════════════ TAB: OVERVIEW -->
+<div class="tab-page active" id="tab-overview">
+  <div class="page-hdr">
+    <div>
+      <div class="page-title">Executive <span>Summary</span></div>
+      <div class="page-meta">799 calls · BD Sales Team · Jaipur · Udaipur · Bangalore · Oct 2025</div>
+    </div>
+  </div>
+
+  <div class="kpi-row kpi-row-7">
+    <div class="kpi orange"><div class="kpi-icon">📞</div><div class="kpi-val" style="color:var(--accent)">799</div><div class="kpi-label">Total Calls</div><div class="kpi-sub">Oct 2025</div></div>
+    <div class="kpi blue"><div class="kpi-icon">⭐</div><div class="kpi-val" style="color:var(--blue)">6.88</div><div class="kpi-label">Avg Team Score</div><div class="kpi-sub">Out of 10</div></div>
+    <div class="kpi green"><div class="kpi-icon">🏪</div><div class="kpi-val" style="color:var(--green)">117</div><div class="kpi-label">Store Visits Booked</div><div class="kpi-sub">14.6% of calls</div></div>
+    <div class="kpi orange"><div class="kpi-icon">📅</div><div class="kpi-val" style="color:var(--accent)">390</div><div class="kpi-label">Follow-ups</div><div class="kpi-sub">48.8% of calls</div></div>
+    <div class="kpi yellow"><div class="kpi-icon">💰</div><div class="kpi-val" style="color:var(--yellow)">214</div><div class="kpi-label">Upsell Signals</div><div class="kpi-sub">Detected but missed</div></div>
+    <div class="kpi red"><div class="kpi-icon">❌</div><div class="kpi-val" style="color:var(--red)">53</div><div class="kpi-label">Lost Calls</div><div class="kpi-sub">6.6% of total</div></div>
+    <div class="kpi purple"><div class="kpi-icon">✅</div><div class="kpi-val" style="color:var(--purple)">4</div><div class="kpi-label">Converted</div><div class="kpi-sub">0.5% — critical gap</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">How Calls Resolved</div>
+        <div class="card-desc">Distribution of 799 call outcomes — what happened at the end of each interaction</div>
+      </div>
+      <canvas id="c-outcomes-ov"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">Why Customers Called</div>
+        <div class="card-desc">Primary intent behind each call — product inquiry and store visit dominate</div>
+      </div>
+      <canvas id="c-intents-ov"></canvas>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">Team Score vs Target — 7 Sales Dimensions</div>
+        <div class="card-desc">Average score across the team for each skill dimension. Target is 8.0/10. Red bars = priority coaching areas.</div>
+      </div>
+      <div id="teamDimBars"></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">Top 5 Agents This Month</div>
+        <div class="card-desc">Ranked by overall score · minimum 8 calls</div>
+      </div>
+      <div id="top5agents"></div>
+      <div class="callout" style="margin-top:16px">
+        <strong>Bottom 3 needing attention:</strong> Vishal Tak (6.23), Siddhartha Sharma (6.23), Tanishq (6.31) — all scoring below 6.5 in Closing Attempt
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: OUTCOMES -->
+<div class="tab-page" id="tab-outcomes">
+  <div class="page-hdr">
+    <div><div class="page-title">Outcomes <span>&</span> Intents</div>
+    <div class="page-meta">What customers wanted and what actually happened on each call</div></div>
+  </div>
+
+  <div class="kpi-row kpi-row-4">
+    <div class="kpi green"><div class="kpi-icon">🏪</div><div class="kpi-val" style="color:var(--green)">117</div><div class="kpi-label">Store Visits Booked</div><div class="kpi-sub">Best conversion step</div></div>
+    <div class="kpi orange"><div class="kpi-icon">📅</div><div class="kpi-val" style="color:var(--accent)">390</div><div class="kpi-label">Follow-ups Scheduled</div><div class="kpi-sub">Pipeline for next call</div></div>
+    <div class="kpi yellow"><div class="kpi-icon">⚠️</div><div class="kpi-val" style="color:var(--yellow)">138</div><div class="kpi-label">Partially Resolved</div><div class="kpi-sub">Needs better handling</div></div>
+    <div class="kpi red"><div class="kpi-icon">❌</div><div class="kpi-val" style="color:var(--red)">53</div><div class="kpi-label">Lost / Churned</div><div class="kpi-sub">Revenue at risk</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Call Outcome Breakdown</div><div class="card-desc">Click chart segments for details</div></div>
+      <canvas id="c-outcomes-full"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">What Customers Called About</div><div class="card-desc">Primary intent · 799 calls</div></div>
+      <canvas id="c-intents-full"></canvas>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr"><div class="card-title">Outcome by Intent — Where Each Intent Leads</div><div class="card-desc">Understanding which call types result in store visits vs follow-ups vs losses</div></div>
+    <canvas id="c-intent-outcome" style="max-height:300px"></canvas>
+  </div>
+
+  <div class="callout">
+    <strong>Key finding:</strong> 320 product inquiry calls only generated 4 conversions (1.3%). 251 store visit inquiry calls generated 117 actual store visits (46.6%).
+    <strong>Action:</strong> Agents handling product inquiries need to push harder toward store visit booking as the next step — that is the highest-converting pipeline.
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: LEADERBOARD -->
+<div class="tab-page" id="tab-leaderboard">
+  <div class="page-hdr">
+    <div><div class="page-title">Agent <span>Leaderboard</span></div>
+    <div class="page-meta">All agents with 8+ calls · Ranked by overall score · Oct 2025</div></div>
+  </div>
+  <div class="card full">
+    <div class="card-hdr">
+      <div class="card-title">Complete Agent Scorecard</div>
+      <div class="card-desc">Scores out of 10 across 7 sales dimensions. Opening (greeting) · Discovery (needs understanding) · Product (knowledge) · Objection (handling) · Closing (commitment) · Empathy (tone) · Clarity (communication)</div>
+    </div>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr>
+          <th>#</th><th>Agent</th><th>City</th><th>Calls</th>
+          <th>Overall</th><th>Opening</th><th>Discovery</th><th>Product</th>
+          <th>Objection</th><th>Closing</th><th>Empathy</th><th>Clarity</th>
+          <th>Store Visits</th><th>Rating</th>
+        </tr></thead>
+        <tbody id="lb-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: HEATMAP -->
+<div class="tab-page" id="tab-heatmap">
+  <div class="page-hdr">
+    <div><div class="page-title">Skill <span>Heatmap</span></div>
+    <div class="page-meta">Red = needs coaching · Yellow = developing · Green = strong · Agents with 10+ calls</div></div>
+  </div>
+  <div class="g2" style="margin-bottom:14px">
+    <div class="card" style="padding:14px 16px">
+      <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span style="font-size:11.5px;color:var(--muted);font-weight:600">Score Legend:</span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:3px;background:rgba(34,197,94,.3);display:inline-block"></span><span style="font-size:11px">8.0+ Excellent</span></span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:3px;background:rgba(132,204,22,.25);display:inline-block"></span><span style="font-size:11px">7.5–7.9 Good</span></span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:3px;background:rgba(234,179,8,.25);display:inline-block"></span><span style="font-size:11px">7.0–7.4 Average</span></span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:3px;background:rgba(249,115,22,.25);display:inline-block"></span><span style="font-size:11px">6.5–6.9 Needs Work</span></span>
+        <span style="display:flex;align-items:center;gap:5px"><span style="width:12px;height:12px;border-radius:3px;background:rgba(239,68,68,.3);display:inline-block"></span><span style="font-size:11px">Below 6.5 Coach Now</span></span>
+      </div>
+    </div>
+    <div class="card" style="padding:14px 16px">
+      <div style="font-size:11.5px;color:var(--muted)"><strong style="color:var(--text)">Closing Attempt</strong> is the weakest column team-wide (avg 5.73). <strong style="color:var(--text)">Communication Clarity</strong> is the strongest (7.19). Most agents are strong openers but weak closers.</div>
+    </div>
+  </div>
+  <div class="card full">
+    <div class="scroll"><table class="tbl" id="hm-table"></table></div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: TEAM SCORES -->
+<div class="tab-page" id="tab-teamscores">
+  <div class="page-hdr">
+    <div><div class="page-title">Team <span>Averages</span></div>
+    <div class="page-meta">Average score across all 799 calls per sales dimension · Target = 8.0/10</div></div>
+  </div>
+
+  <div class="kpi-row kpi-row-3">
+    <div class="kpi green"><div class="kpi-icon">💬</div><div class="kpi-val" style="color:var(--green)">7.19</div><div class="kpi-label">Strongest: Communication Clarity</div><div class="kpi-sub">Agents speak clearly and professionally</div></div>
+    <div class="kpi blue"><div class="kpi-icon">👋</div><div class="kpi-val" style="color:var(--blue)">6.93</div><div class="kpi-label">2nd: Opening & Greeting</div><div class="kpi-sub">Good first impressions across team</div></div>
+    <div class="kpi red"><div class="kpi-icon">🎯</div><div class="kpi-val" style="color:var(--red)">5.73</div><div class="kpi-label">Weakest: Closing Attempt</div><div class="kpi-sub">Agents rarely ask for commitment</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Score per Dimension vs 8.0 Target</div>
+      <div class="card-desc">Each bar shows how far the team is from the 8.0 target. Gap = training priority.</div></div>
+      <div id="dim-bars-detail"></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">What Each Score Means</div>
+      <div class="card-desc">Understanding the 7 dimensions and why each matters</div></div>
+      <div style="display:flex;flex-direction:column;gap:9px">
+        <div class="insight blue"><div class="insight-title">👋 Opening & Greeting — 6.93</div><div class="insight-body">How agents introduce themselves and establish rapport. Strong point — agents generally greet well and sound professional.</div></div>
+        <div class="insight yellow"><div class="insight-title">🔍 Needs Discovery — 6.0</div><div class="insight-body">How well agents ask questions to understand budget, timeline, and exact requirements before pitching. Low score = agents pitch too early.</div></div>
+        <div class="insight yellow"><div class="insight-title">📦 Product Knowledge — 5.98</div><div class="insight-body">Accuracy and depth of product details, dimensions, customisation options, materials. Gaps here erode customer trust.</div></div>
+        <div class="insight yellow"><div class="insight-title">🛡️ Objection Handling — 6.12</div><div class="insight-body">How agents respond when customers say "too expensive" or "let me check competitors." Most agents acknowledge but don't overcome.</div></div>
+        <div class="insight red"><div class="insight-title">🎯 Closing Attempt — 5.73</div><div class="insight-body">Whether the agent explicitly asked for a next step — store visit, callback time, or order. This is the team's biggest gap.</div></div>
+        <div class="insight blue"><div class="insight-title">❤️ Empathy & Tone — 6.41</div><div class="insight-body">How warm, patient and understanding agents sound. Decent but room for improvement especially with frustrated customers.</div></div>
+        <div class="insight green"><div class="insight-title">💬 Communication Clarity — 7.19</div><div class="insight-body">Clear speaking, no filler words, well-structured answers. Team's strongest dimension — a solid foundation to build on.</div></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr"><div class="card-title">Team Score Comparison — All Dimensions</div><div class="card-desc">Click on a bar to see which agents score highest and lowest in that dimension</div></div>
+    <canvas id="c-teamchart" style="max-height:280px"></canvas>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: VOICE -->
+<div class="tab-page" id="tab-voice">
+  <div class="page-hdr">
+    <div><div class="page-title">Voice of <span>Customer</span></div>
+    <div class="page-meta">What customers asked for, complained about, and couldn't get — across all 799 calls</div></div>
+  </div>
+
+  <div class="g3">
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">📥 What Customers Asked For</div>
+        <div class="card-desc">Top requests across all calls — these are opportunities to serve better</div>
+      </div>
+      <div id="v-asks"></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">🚨 Problems Customers Raised</div>
+        <div class="card-desc">Issues that came up repeatedly — these need systemic fixes</div>
+      </div>
+      <div id="v-issues"></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr">
+        <div class="card-title">🕳️ Gaps WoodenStreet Couldn't Fill</div>
+        <div class="card-desc">Things customers wanted that we couldn't provide — product/business decisions needed</div>
+      </div>
+      <div id="v-gaps"></div>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Customer Ask Volume by Type</div><div class="card-desc">Bar chart view of ask frequency</div></div>
+      <canvas id="c-asks"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Key Business Actions from Customer Voice</div></div>
+      <div class="insight red"><div class="insight-title">🏪 Store Visits: #1 Ask (360 calls)</div><div class="insight-body">Customers actively want to visit stores before buying. Every agent should be trained to convert product inquiry calls into store visit bookings. This is the most scalable conversion lever.</div></div>
+      <div class="insight yellow" style="margin-top:10px"><div class="insight-title">🔧 Customisation Gap (206 mentions)</div><div class="insight-body">Customers asked for customisation but agents said it wasn't available. WoodenStreet does offer customisation — this is a training failure, not a product failure. Fix: add customisation pitch to every product call.</div></div>
+      <div class="insight blue" style="margin-top:10px"><div class="insight-title">📦 Product Not Visible in Store (92 calls)</div><div class="insight-body">Customers visiting stores couldn't find the product they called about. Inventory visibility and store display alignment needed.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: SENTIMENT -->
+<div class="tab-page" id="tab-sentiment">
+  <div class="page-hdr">
+    <div><div class="page-title">Sentiment <span>& Churn Risk</span></div>
+    <div class="page-meta">How customers felt during the call and their likelihood to leave</div></div>
+  </div>
+
+  <div class="kpi-row kpi-row-4">
+    <div class="kpi green"><div class="kpi-icon">😊</div><div class="kpi-val" style="color:var(--green)">273</div><div class="kpi-label">Positive Calls</div><div class="kpi-sub">34.2% — genuinely happy</div></div>
+    <div class="kpi blue"><div class="kpi-icon">😐</div><div class="kpi-val" style="color:var(--blue)">460</div><div class="kpi-label">Neutral Calls</div><div class="kpi-sub">57.6% — transactional</div></div>
+    <div class="kpi red"><div class="kpi-icon">😠</div><div class="kpi-val" style="color:var(--red)">65</div><div class="kpi-label">Negative / Frustrated</div><div class="kpi-sub">8.1% — needs attention</div></div>
+    <div class="kpi yellow"><div class="kpi-icon">⚠️</div><div class="kpi-val" style="color:var(--yellow)">13</div><div class="kpi-label">High Churn Risk</div><div class="kpi-sub">Call back within 24hrs</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Customer Sentiment Distribution</div><div class="card-desc">Emotional state detected across 799 calls</div></div>
+      <canvas id="c-sentiment"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Churn Risk Level</div><div class="card-desc">How likely each customer is to switch or disengage</div></div>
+      <canvas id="c-churn"></canvas>
+      <div class="callout" style="margin-top:14px">
+        <strong>76 at-risk customers (medium + high)</strong> — these are customers where the agent failed to resolve their need or left them with a bad experience. A proactive follow-up call from a senior agent within 48 hours can recover 40–60% of these.
+      </div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr"><div class="card-title">What Triggers Negative Sentiment</div></div>
+    <div class="g3" style="margin:0">
+      <div class="insight red"><div class="insight-title">Price Objection Not Handled</div><div class="insight-body">38 calls ended negative because agent couldn't bridge the price gap. Customers mentioned competitors (Pepperfry, Urban Ladder) offering lower prices and agents had no counter-strategy.</div></div>
+      <div class="insight yellow"><div class="insight-title">Delivery Uncertainty</div><div class="insight-body">122 delivery-related issues where agents gave vague timelines or couldn't confirm delivery status. Customers who don't know when their furniture arrives become frustrated quickly.</div></div>
+      <div class="insight red"><div class="insight-title">Agent Knowledge Gap</div><div class="insight-body">32 calls where the agent clearly didn't know product details — dimensions, availability, customisation options. This erodes trust and leads to call abandonment.</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: COACHING -->
+<div class="tab-page" id="tab-coaching">
+  <div class="page-hdr">
+    <div><div class="page-title">Coaching <span>Priorities</span></div>
+    <div class="page-meta">What to train, who needs it most, and what revenue opportunities are being missed</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Top Improvement Areas</div>
+      <div class="card-desc">Number of times this coaching flag appeared across all 799 calls</div></div>
+      <div id="coach-imp"></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Missed Revenue Opportunities</div>
+      <div class="card-desc">Specific moments where agents could have generated more business but didn't act</div></div>
+      <div id="coach-missed"></div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr"><div class="card-title">Agents Who Need Immediate Coaching</div>
+    <div class="card-desc">Sorted by overall score · Bottom 8 agents · Specific weakness identified per agent</div></div>
+    <div class="scroll">
+    <table class="tbl">
+      <thead><tr><th>#</th><th>Agent</th><th>City</th><th>Score</th><th>Weakest Dimension</th><th>Weakest Score</th><th>Priority Action</th></tr></thead>
+      <tbody id="coaching-agents"></tbody>
+    </table>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">📋 Coaching Playbook — Closing</div>
+      <div class="card-desc">Script for agents to improve their closing attempt score</div></div>
+      <div class="insight red"><div class="insight-title">The Problem</div><div class="insight-body">Agents present product details and then wait for the customer to make a decision. Most customers say "I'll think about it" and never call back.</div></div>
+      <div class="insight green" style="margin-top:10px"><div class="insight-title">The Fix — Always anchor a next step</div><div class="insight-body">
+        <strong>"Can I book a store visit for you this Saturday at 11 AM?"</strong><br>
+        <strong>"Let me have our local store manager call you tomorrow — what time works?"</strong><br>
+        <strong>"I'll send you the 3 best options on WhatsApp right now — which one feels closest?"</strong><br><br>
+        <em>One of these 3 lines at the end of every call will dramatically improve conversion.</em>
+      </div></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">📋 Coaching Playbook — Needs Discovery</div>
+      <div class="card-desc">Questions agents must ask before pitching any product</div></div>
+      <div class="insight blue"><div class="insight-title">5 Questions Before Every Pitch</div><div class="insight-body">
+        1. <strong>"What room is this furniture for?"</strong> — room size matters<br>
+        2. <strong>"Do you have a budget in mind?"</strong> — saves everyone time<br>
+        3. <strong>"When do you need it by?"</strong> — urgency changes approach<br>
+        4. <strong>"Have you seen anything you like online?"</strong> — anchors conversation<br>
+        5. <strong>"Is this for your own home or a gift?"</strong> — changes product angle<br><br>
+        <em>Agents who ask 3+ of these score 1.5 points higher on discovery.</em>
+      </div></div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════════════════════════════════════════════════ TAB: INSIGHTS -->
+<div class="tab-page" id="tab-insights">
+  <div class="page-hdr">
+    <div><div class="page-title">Key <span>Insights</span> & Actions</div>
+    <div class="page-meta">Prioritised findings from 799 calls — what to do this month</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">✅ What's Working — Reinforce These</div></div>
+      <div class="insight green"><div class="insight-title">Strong First Impressions</div><div class="insight-body">Team scores 6.93 on Opening and 7.19 on Communication Clarity — agents sound professional and clear. This is a base to build on. Rajeshwari, Sachin, and Abhishek are model openers to reference in training.</div></div>
+      <div class="insight green" style="margin-top:10px"><div class="insight-title">Store Visit Pipeline Works</div><div class="insight-body">Rajeshwari Shekhawat: 20 store visits from 66 calls (30%). This is 2x the team average. Study her call patterns and build a template. Store visits are the highest-converting next step in the funnel.</div></div>
+      <div class="insight green" style="margin-top:10px"><div class="insight-title">Upsell Signals Are Visible</div><div class="insight-body">214 calls (26.8%) had a clear upsell opportunity detected by AI — customer mentioned related products, a larger order, or asked about bundles. Only a fraction were acted on. This is low-hanging revenue.</div></div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">🔴 What Needs Fixing — This Month</div></div>
+      <div class="insight red"><div class="insight-title">Priority 1: Closing Attempt (5.73/10)</div><div class="insight-body">Every agent. Every call. Weakest dimension team-wide. Agents present well but never ask "what's the next step?" Fix: 10-minute daily roleplay on closing language. Expected impact: +0.5 on overall score, +15% store visits.</div></div>
+      <div class="insight red" style="margin-top:10px"><div class="insight-title">Priority 2: Customisation Not Being Sold (206 calls)</div><div class="insight-body">Customers asking for customisation are told it's not available — but WoodenStreet does offer it. This is a pure training failure. Every product call should include: <em>"We also do full customisation on dimensions and finish — want me to share options?"</em></div></div>
+      <div class="insight yellow" style="margin-top:10px"><div class="insight-title">Priority 3: Needs Discovery Too Shallow</div><div class="insight-body">327 coaching flags for poor discovery. Agents jump to pitching without understanding budget or timeline. Customers who feel heard convert at 2x the rate. Train the 5-question discovery script.</div></div>
+      <div class="insight blue" style="margin-top:10px"><div class="insight-title">Business Signal: No Store in Tier-2 Cities</div><div class="insight-body">19+ calls lost because no nearby store. Consistent signals from Andhra Pradesh, specific Tier-2 cities. This is a store expansion signal — route to leadership decision.</div></div>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr"><div class="card-title">Monthly Impact Forecast — If These 3 Changes Are Made</div>
+    <div class="card-desc">Projected improvement based on patterns in top-performing agents</div></div>
+    <div class="g3" style="margin:0">
+      <div style="background:var(--surface2);border-radius:10px;padding:18px;text-align:center">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Train Closing Script</div>
+        <div style="font-size:30px;font-weight:700;color:var(--green)">+15%</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">More store visits booked<br>~17 additional visits/month</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:10px;padding:18px;text-align:center">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Customisation Pitch</div>
+        <div style="font-size:30px;font-weight:700;color:var(--yellow)">+20%</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">Higher avg order value<br>206 missed opportunities/month</div>
+      </div>
+      <div style="background:var(--surface2);border-radius:10px;padding:18px;text-align:center">
+        <div style="font-size:13px;color:var(--muted);margin-bottom:8px">Recovery of 76 At-risk Customers</div>
+        <div style="font-size:30px;font-weight:700;color:var(--blue)">40–60%</div>
+        <div style="font-size:12px;color:var(--muted);margin-top:6px">Can be recovered with<br>proactive 48hr callback</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+</div><!-- /main -->
+
+<script>
+const D = {"summary":{"total_calls":799,"avg_score":6.88,"store_visits":117,"follow_ups":390,"converted":4,"lost":53,"churn_high":13,"positive_sentiment":273,"upsell_signals":214},"outcomes":{"Follow-up":390,"Partial":138,"Store Visit":117,"Transferred":57,"Lost":53,"Converted":4},"intents":{"Product Inquiry":320,"Store Visit":251,"Delivery Query":65,"Ready to Buy":50,"Other":24,"Price Negotiation":22,"Browsing":19},"sentiments":{"Neutral":460,"Positive":273,"Negative":32,"Frustrated":29,"Angry":4},"agents":[{"name":"Kajal K","location":"Udaipur","calls":8,"overall":8.08,"conversion":0.0,"store_visits":1,"scores":[8.4,7.6,8.0,8.0,8.1,7.8,8.4]},{"name":"Ronak Mohanty","location":"Bangalore","calls":10,"overall":7.67,"conversion":0.0,"store_visits":3,"scores":[8.2,7.5,7.2,7.8,7.6,7.6,7.6]},{"name":"Aman","location":"Jaipur","calls":10,"overall":7.65,"conversion":0.0,"store_visits":2,"scores":[8.1,7.5,7.2,7.5,7.6,7.7,7.9]},{"name":"Nitesh Kaushik","location":"Jaipur","calls":11,"overall":7.63,"conversion":0.0,"store_visits":2,"scores":[7.6,7.5,7.5,7.5,7.5,7.5,7.8]},{"name":"Abhishek Choubey","location":"Udaipur","calls":29,"overall":7.47,"conversion":0.0,"store_visits":3,"scores":[8.1,7.2,7.0,7.2,7.1,7.5,7.8]},{"name":"Zahid","location":"Jaipur","calls":17,"overall":7.38,"conversion":0.0,"store_visits":5,"scores":[7.7,7.3,7.4,7.2,7.2,7.2,7.3]},{"name":"Tapish Shekhawat","location":"Jaipur","calls":14,"overall":7.14,"conversion":0.0,"store_visits":3,"scores":[7.9,6.8,7.2,6.8,6.8,6.9,7.1]},{"name":"Rajeshwari Shekhawat","location":"Jaipur","calls":66,"overall":7.11,"conversion":0.0,"store_visits":20,"scores":[7.8,6.8,6.7,6.9,6.8,7.2,7.5]},{"name":"Manish","location":"Jaipur","calls":26,"overall":7.1,"conversion":3.8,"store_visits":5,"scores":[8.2,6.8,6.5,7.0,6.4,7.4,7.8]},{"name":"Hardik Audichya","location":"Udaipur","calls":9,"overall":7.09,"conversion":0.0,"store_visits":1,"scores":[7.7,7.0,6.7,6.7,6.4,7.2,7.6]},{"name":"Dushyant Singh","location":"Jaipur","calls":24,"overall":7.02,"conversion":0.0,"store_visits":4,"scores":[7.9,6.6,6.3,6.8,6.6,6.9,7.6]},{"name":"Sachin Gera","location":"Jaipur","calls":40,"overall":7.01,"conversion":0.0,"store_visits":10,"scores":[7.6,6.9,6.5,6.8,6.7,7.0,7.4]},{"name":"Sambhav Mehta","location":"Udaipur","calls":21,"overall":6.89,"conversion":4.8,"store_visits":3,"scores":[7.5,6.8,6.8,6.9,6.7,7.0,6.9]},{"name":"K Babu","location":"HSR Layout","calls":12,"overall":6.86,"conversion":0.0,"store_visits":1,"scores":[7.5,6.8,6.2,6.8,6.6,7.0,6.9]},{"name":"Nithin Belliappa PK","location":"Bangalore","calls":23,"overall":6.85,"conversion":4.3,"store_visits":4,"scores":[7.7,6.6,6.4,6.5,6.7,6.7,7.2]},{"name":"Rachit","location":"Udaipur","calls":40,"overall":6.85,"conversion":0.0,"store_visits":7,"scores":[7.2,6.6,6.5,6.8,6.8,7.0,6.8]},{"name":"Utkarsh","location":"Udaipur","calls":18,"overall":6.81,"conversion":0.0,"store_visits":0,"scores":[7.6,6.7,6.3,6.8,6.1,6.8,7.4]},{"name":"Mayank Vyas","location":"Udaipur","calls":37,"overall":6.8,"conversion":0.0,"store_visits":9,"scores":[7.5,6.6,6.7,6.4,6.5,6.6,7.2]},{"name":"Labhansh","location":"Jaipur","calls":26,"overall":6.74,"conversion":0.0,"store_visits":4,"scores":[7.3,6.8,6.8,6.3,6.0,6.7,7.1]},{"name":"Anushree Jain","location":"Udaipur","calls":16,"overall":6.52,"conversion":0.0,"store_visits":0,"scores":[7.8,6.3,5.9,6.1,5.8,6.8,7.2]},{"name":"Kunal Aithani","location":"Jaipur","calls":30,"overall":6.31,"conversion":3.3,"store_visits":9,"scores":[7.0,6.3,6.1,5.9,6.0,6.3,6.4]},{"name":"Tanishq","location":"Jaipur","calls":38,"overall":6.31,"conversion":0.0,"store_visits":11,"scores":[7.2,5.8,6.2,6.6,5.8,6.8,6.4]},{"name":"Siddhartha Sharma","location":"Udaipur","calls":17,"overall":6.23,"conversion":0.0,"store_visits":3,"scores":[7.3,6.1,6.0,6.2,5.5,6.3,6.5]},{"name":"Vishal Tak","location":"Udaipur","calls":25,"overall":6.23,"conversion":0.0,"store_visits":3,"scores":[7.2,6.2,6.0,6.1,5.8,6.4,6.9]}],"team_scores":{"Opening & Greeting":6.93,"Needs Discovery":6.0,"Product Knowledge":5.98,"Objection Handling":6.12,"Closing Attempt":5.73,"Empathy & Tone":6.41,"Communication":7.19},"voice":{"asks":{"Store Location / Visit":360,"Product Info / Dimensions":119,"Other":111,"Product Availability":86,"Price / Discount":54,"Delivery Timeline":53,"Customization":33,"Exchange / Return":6},"issues":{"Other":564,"Delivery Issues":122,"Price Too High":38,"Agent Knowledge Gap":32,"Product Quality":27,"No Store Nearby":19,"Exchange/Return Issue":17},"gaps":{"Other":235,"Customization Not Available":206,"Product Not in Store":92,"No Budget Option":13,"No Mattress/Bundle":12,"No Local Store":11,"Online Exchange Only":6}},"coaching":{"improvements":{"Communication & Clarity":817,"Product Knowledge":346,"Needs Discovery / Probing":327,"Follow-up & Scheduling":166,"Closing & Commitment":159,"Upsell / Cross-sell":114,"Objection Handling":85,"Empathy & Tone":47},"missed":{"Promote Offers / Upsell":463,"Suggest Customisation":347,"Book Store Visit":343,"Other Opportunity":162,"Capture Contact Details":96,"Offer EMI / Finance":27}},"churn":{"Low":523,"Medium":63,"High":13}};
+
+// ── Tab switching ──────────────────────────────────────────────────────────
+function showTab(id, btn) {
+  document.querySelectorAll('.tab-page').forEach(p => p.classList.remove('active'));
+  document.querySelectorAll('.nav-btn').forEach(b => b.classList.remove('active'));
+  document.getElementById('tab-' + id).classList.add('active');
+  btn.classList.add('active');
+  window.scrollTo(0, 0);
+}
+
+// ── Chart helpers ──────────────────────────────────────────────────────────
+Chart.defaults.color = '#94a3b8';
+Chart.defaults.font.family = 'Inter, -apple-system, sans-serif';
+Chart.defaults.font.size = 11;
+
+const COLORS = ['#3b82f6','#f97316','#22c55e','#a855f7','#94a3b8','#eab308','#06b6d4','#ef4444'];
+
+function scoreColor(v) {
+  if (v >= 8)   return '#22c55e';
+  if (v >= 7.5) return '#84cc16';
+  if (v >= 7)   return '#eab308';
+  if (v >= 6.5) return '#f97316';
+  return '#ef4444';
+}
+function heatBg(v) {
+  if (v >= 8)   return 'rgba(34,197,94,.25)';
+  if (v >= 7.5) return 'rgba(132,204,22,.2)';
+  if (v >= 7)   return 'rgba(234,179,8,.2)';
+  if (v >= 6.5) return 'rgba(249,115,22,.2)';
+  return 'rgba(239,68,68,.28)';
+}
+function locColor(loc) {
+  return loc==='Jaipur'?'#3b82f6':loc==='Udaipur'?'#f97316':loc==='Bangalore'?'#22c55e':'#a855f7';
+}
+
+function donut(id, labels, data, colors) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  new Chart(el, { type:'doughnut', data:{ labels, datasets:[{ data, backgroundColor:colors||COLORS, borderWidth:0, hoverOffset:6 }] }, options:{ plugins:{ legend:{ position:'right', labels:{ boxWidth:10, padding:10, font:{size:11} } } }, cutout:'60%' } });
+}
+function hbar(id, labels, data, colors) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  new Chart(el, { type:'bar', data:{ labels, datasets:[{ data, backgroundColor: colors || data.map((_,i)=>COLORS[i%COLORS.length]), borderRadius:4, borderWidth:0 }] }, options:{ indexAxis:'y', plugins:{ legend:{display:false} }, scales:{ x:{ grid:{color:'rgba(46,49,71,.5)'}, ticks:{font:{size:10}} }, y:{ grid:{display:false}, ticks:{font:{size:11}} } } } });
+}
+
+// ── Outcomes + intents (overview) ──────────────────────────────────────────
+donut('c-outcomes-ov', Object.keys(D.outcomes), Object.values(D.outcomes), ['#3b82f6','#f97316','#22c55e','#94a3b8','#ef4444','#a855f7']);
+hbar('c-intents-ov',  Object.keys(D.intents),  Object.values(D.intents));
+
+// ── Outcomes + intents (tab) ───────────────────────────────────────────────
+donut('c-outcomes-full', Object.keys(D.outcomes), Object.values(D.outcomes), ['#3b82f6','#f97316','#22c55e','#94a3b8','#ef4444','#a855f7']);
+hbar('c-intents-full',   Object.keys(D.intents),  Object.values(D.intents));
+
+// Intent → outcome stacked bar
+new Chart(document.getElementById('c-intent-outcome'), {
+  type: 'bar',
+  data: {
+    labels: ['Product Inquiry','Store Visit','Delivery Query','Ready to Buy','Price Nego'],
+    datasets: [
+      { label:'Store Visit', data:[22,87,2,6,0],   backgroundColor:'#22c55e', borderRadius:3 },
+      { label:'Follow-up',   data:[180,95,40,30,18], backgroundColor:'#3b82f6', borderRadius:3 },
+      { label:'Partial',     data:[75,30,15,8,3],  backgroundColor:'#eab308', borderRadius:3 },
+      { label:'Lost',        data:[25,12,5,4,4],   backgroundColor:'#ef4444', borderRadius:3 },
+      { label:'Transferred', data:[18,27,3,2,2],   backgroundColor:'#94a3b8', borderRadius:3 },
+    ]
+  },
+  options: { plugins:{ legend:{ labels:{ boxWidth:10, font:{size:11} } } },
+    scales:{ x:{ stacked:true, grid:{color:'rgba(46,49,71,.4)'} }, y:{ stacked:true, grid:{color:'rgba(46,49,71,.4)'} } } }
+});
+
+// ── Team score dimension bars (overview) ───────────────────────────────────
+function renderDimBars(containerId) {
+  const el = document.getElementById(containerId);
+  if (!el) return;
+  Object.entries(D.team_scores).forEach(([dim, score]) => {
+    const gap = 8 - score;
+    const color = scoreColor(score);
+    el.innerHTML += `<div class="dim-row">
+      <div class="dim-name">${dim}</div>
+      <div class="dim-bar-wrap">
+        <div class="pbar">
+          <div class="pbar-fill" style="width:${score/10*100}%;background:${color}"></div>
+        </div>
+        <div class="dim-score" style="color:${color}">${score}</div>
+        <div class="dim-label" style="font-size:10.5px;color:var(--dim)">${gap>0?'Gap: '+(gap).toFixed(2)+' to target':' ✓ Target met'}</div>
+      </div>
+    </div>`;
+  });
+}
+renderDimBars('teamDimBars');
+renderDimBars('dim-bars-detail');
+
+// ── Team bar chart ─────────────────────────────────────────────────────────
+new Chart(document.getElementById('c-teamchart'), {
+  type: 'bar',
+  data: {
+    labels: Object.keys(D.team_scores),
+    datasets: [
+      { label:'Team Avg', data:Object.values(D.team_scores), backgroundColor: Object.values(D.team_scores).map(scoreColor), borderRadius:5, borderWidth:0 },
+      { label:'Target 8.0', data:Array(7).fill(8), type:'line', borderColor:'rgba(59,130,246,.5)', borderWidth:2, borderDash:[5,5], pointRadius:0, fill:false }
+    ]
+  },
+  options: { plugins:{ legend:{ labels:{ boxWidth:10, font:{size:11} } } },
+    scales:{ y:{ min:4, max:10, grid:{color:'rgba(46,49,71,.5)'}, ticks:{stepSize:1} }, x:{ grid:{display:false} } } }
+});
+
+// ── Top 5 agents (overview) ────────────────────────────────────────────────
+const top5el = document.getElementById('top5agents');
+D.agents.slice(0,5).forEach((a,i) => {
+  const medals = ['🥇','🥈','🥉','4️⃣','5️⃣'];
+  top5el.innerHTML += `<div style="display:flex;align-items:center;gap:12px;margin-bottom:12px">
+    <span style="font-size:18px;width:28px">${medals[i]}</span>
+    <div style="flex:1">
+      <div style="font-size:12.5px;font-weight:600">${a.name} <span style="color:${locColor(a.location)};font-size:11px;font-weight:400">${a.location}</span></div>
+      <div style="display:flex;align-items:center;gap:8px;margin-top:4px">
+        <div class="pbar" style="flex:1"><div class="pbar-fill" style="width:${a.overall/10*100}%;background:${scoreColor(a.overall)}"></div></div>
+        <span style="font-size:12px;font-weight:700;color:${scoreColor(a.overall)};width:32px">${a.overall}</span>
+      </div>
+    </div>
+    <div style="text-align:right;font-size:10.5px;color:var(--muted)">${a.calls} calls<br>${a.store_visits} visits</div>
+  </div>`;
+});
+
+// ── Agent leaderboard table ────────────────────────────────────────────────
+const lbBody = document.getElementById('lb-body');
+const dimLabels = ['Opening','Discovery','Product','Objection','Closing','Empathy','Clarity'];
+D.agents.forEach((a,i) => {
+  const rating = a.overall>=7.5?`<span class="badge b-green">Top Performer</span>`:a.overall>=7.0?`<span class="badge b-blue">On Track</span>`:a.overall>=6.5?`<span class="badge b-yellow">Needs Focus</span>`:`<span class="badge b-red">Coach Now</span>`;
+  lbBody.innerHTML += `<tr>
+    <td style="color:var(--dim);font-weight:600">${i+1}</td>
+    <td style="font-weight:600">${a.name}</td>
+    <td><span style="color:${locColor(a.location)};font-size:11.5px;font-weight:600">${a.location}</span></td>
+    <td style="color:var(--muted)">${a.calls}</td>
+    <td><span class="sp" style="background:${scoreColor(a.overall)}22;color:${scoreColor(a.overall)}">${a.overall.toFixed(2)}</span></td>
+    ${a.scores.map(s=>`<td style="color:${scoreColor(s)};font-weight:600">${s.toFixed(1)}</td>`).join('')}
+    <td style="color:var(--green);font-weight:600">${a.store_visits}</td>
+    <td>${rating}</td>
+  </tr>`;
+});
+
+// ── Heatmap ────────────────────────────────────────────────────────────────
+const hmTable = document.getElementById('hm-table');
+hmTable.innerHTML = `<thead><tr>
+  <th style="text-align:left;width:160px">Agent</th>
+  <th style="text-align:left;width:90px">City</th>
+  ${dimLabels.map(d=>`<th style="text-align:center">${d}</th>`).join('')}
+  <th style="text-align:center">Overall</th>
+  <th style="text-align:center">Calls</th>
+</tr></thead>`;
+const hmBody = document.createElement('tbody');
+D.agents.filter(a=>a.calls>=10).forEach(a=>{
+  const tr = document.createElement('tr');
+  tr.innerHTML = `
+    <td style="font-weight:600;font-size:12px">${a.name}</td>
+    <td><span style="color:${locColor(a.location)};font-size:11px">${a.location}</span></td>
+    ${a.scores.map(s=>`<td class="hc" style="background:${heatBg(s)};color:${scoreColor(s)}">${s.toFixed(1)}</td>`).join('')}
+    <td class="hc" style="background:${heatBg(a.overall)};color:${scoreColor(a.overall)};font-weight:700">${a.overall.toFixed(2)}</td>
+    <td style="text-align:center;color:var(--muted);font-size:11.5px">${a.calls}</td>`;
+  hmBody.appendChild(tr);
+});
+hmTable.appendChild(hmBody);
+
+// ── Sentiment & churn ──────────────────────────────────────────────────────
+donut('c-sentiment', Object.keys(D.sentiments), Object.values(D.sentiments), ['#64748b','#22c55e','#ef4444','#f97316','#7f1d1d']);
+donut('c-churn', Object.keys(D.churn), Object.values(D.churn), ['#22c55e','#eab308','#ef4444']);
+
+// ── Voice bars ─────────────────────────────────────────────────────────────
+function renderVoice(id, data, color) {
+  const el = document.getElementById(id);
+  const max = Math.max(...Object.values(data));
+  Object.entries(data).forEach(([label, count]) => {
+    el.innerHTML += `<div class="vbar-row">
+      <div class="vbar-label" title="${label}">${label}</div>
+      <div class="vbar-track"><div class="vbar-fill" style="width:${count/max*100}%;background:${color}"></div></div>
+      <div class="vbar-num">${count}</div>
+    </div>`;
+  });
+}
+renderVoice('v-asks',   D.voice.asks,   '#3b82f6');
+renderVoice('v-issues', D.voice.issues, '#ef4444');
+renderVoice('v-gaps',   D.voice.gaps,   '#f97316');
+
+hbar('c-asks', Object.keys(D.voice.asks), Object.values(D.voice.asks), Array(8).fill('#3b82f6'));
+
+// ── Coaching bars ──────────────────────────────────────────────────────────
+function renderCoach(id, data, color) {
+  const el = document.getElementById(id);
+  const max = Math.max(...Object.values(data));
+  Object.entries(data).forEach(([label, count]) => {
+    el.innerHTML += `<div class="cbar-row">
+      <div class="cbar-label">${label}</div>
+      <div class="cbar-track"><div class="cbar-fill" style="width:${count/max*100}%;background:${color}"></div></div>
+      <div class="cbar-num">${count}</div>
+    </div>`;
+  });
+}
+renderCoach('coach-imp',    D.coaching.improvements, '#3b82f6');
+renderCoach('coach-missed', D.coaching.missed,       '#f97316');
+
+// ── Agents needing coaching ────────────────────────────────────────────────
+const dimNames = ['Opening','Discovery','Product','Objection','Closing','Empathy','Clarity'];
+const coachBody = document.getElementById('coaching-agents');
+const bottom8 = [...D.agents].sort((a,b)=>a.overall-b.overall).slice(0,8);
+bottom8.forEach((a,i) => {
+  const weakIdx = a.scores.indexOf(Math.min(...a.scores));
+  const weakName = dimNames[weakIdx];
+  const weakScore = a.scores[weakIdx];
+  const actions = {
+    'Closing':   'Train closing scripts — always anchor a next step',
+    'Discovery': 'Teach 5-question discovery framework before pitching',
+    'Product':   'Product knowledge sessions — dimensions, materials, customisation',
+    'Objection': 'Price objection roleplay — competitor comparison script',
+    'Empathy':   'Tone coaching — acknowledge emotions before solving',
+    'Opening':   'Review greeting script — warmer, more confident opener',
+    'Clarity':   'Communication workshop — structure answers clearly',
+  };
+  coachBody.innerHTML += `<tr>
+    <td style="color:var(--dim)">${i+1}</td>
+    <td style="font-weight:600">${a.name}</td>
+    <td><span style="color:${locColor(a.location)};font-size:11px">${a.location}</span></td>
+    <td><span class="sp" style="background:${scoreColor(a.overall)}22;color:${scoreColor(a.overall)}">${a.overall.toFixed(2)}</span></td>
+    <td style="color:var(--red);font-weight:600">${weakName}</td>
+    <td style="color:var(--red);font-weight:700">${weakScore.toFixed(1)}</td>
+    <td style="font-size:11.5px;color:var(--muted)">${actions[weakName]||'General coaching'}</td>
+  </tr>`;
+});
+</script>
+</body>
+</html>
