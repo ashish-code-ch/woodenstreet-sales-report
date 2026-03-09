@@ -188,6 +188,11 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
     <button class="nav-btn" onclick="showTab('insights',this)">
       <span class="nav-icon">💡</span> Key Insights
     </button>
+
+    <div class="nav-group-label">Activity</div>
+    <button class="nav-btn" onclick="showTab('activity',this)">
+      <span class="nav-icon">📋</span> Activity Dashboard
+    </button>
   </div>
   <div class="nav-footer">
     <div class="nav-footer-text">799 calls analysed<br>24 agents · 3 cities<br>October 2025</div>
@@ -568,6 +573,66 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
   </div>
 </div>
 
+
+<!-- ══════════════════════════════════════════════════════ TAB: ACTIVITY -->
+<div class="tab-page" id="tab-activity">
+  <div class="page-hdr">
+    <div><div class="page-title">Activity <span>Dashboard</span></div>
+    <div class="page-meta">Call volume · talk time · lost calls per agent · Oct 2025</div></div>
+  </div>
+
+  <div class="kpi-row kpi-row-4">
+    <div class="kpi orange"><div class="kpi-icon">📞</div><div class="kpi-val" style="color:var(--accent)" id="act-kpi-calls">—</div><div class="kpi-label">Total Calls (3 days)</div><div class="kpi-sub">Across all agents</div></div>
+    <div class="kpi blue"><div class="kpi-icon">⏱️</div><div class="kpi-val" style="color:var(--blue)" id="act-kpi-talk">—</div><div class="kpi-label">Total Talk Time</div><div class="kpi-sub">Minutes logged</div></div>
+    <div class="kpi red"><div class="kpi-icon">❌</div><div class="kpi-val" style="color:var(--red)" id="act-kpi-lost">—</div><div class="kpi-label">Calls Lost</div><div class="kpi-sub">Customer churned/hung up</div></div>
+    <div class="kpi green"><div class="kpi-icon">🏆</div><div class="kpi-val" style="color:var(--green)" id="act-kpi-top">—</div><div class="kpi-label">Highest Volume Agent</div><div class="kpi-sub">Total calls handled</div></div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Calls per Agent</div><div class="card-desc">Total calls handled (Oct 1–3) · sorted by volume</div></div>
+      <canvas id="c-act-calls" style="max-height:320px"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Total Talk Time per Agent (minutes)</div><div class="card-desc">Cumulative talk time — who spent most time on calls</div></div>
+      <canvas id="c-act-talk" style="max-height:320px"></canvas>
+    </div>
+  </div>
+
+  <div class="g2">
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Lost Calls per Agent</div><div class="card-desc">Absolute count of calls where customer churned or disengaged</div></div>
+      <canvas id="c-act-lost-abs" style="max-height:280px"></canvas>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><div class="card-title">Lost Call Rate % per Agent</div><div class="card-desc">Agents with ≥5 calls shown · Red = >20% lost rate (critical)</div></div>
+      <canvas id="c-act-lost-pct" style="max-height:280px"></canvas>
+    </div>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr"><div class="card-title">Daily Call Volume & Lost Calls (Oct 1–3)</div><div class="card-desc">Team-wide daily trend</div></div>
+    <canvas id="c-act-daily" style="max-height:220px"></canvas>
+  </div>
+
+  <div class="card full">
+    <div class="card-hdr">
+      <div class="card-title">Full Activity Table — All Agents</div>
+      <div class="card-desc">Calls · Talk time · Avg call duration · Lost · Lost % · Store visits · Follow-ups</div>
+    </div>
+    <div class="scroll">
+      <table class="tbl">
+        <thead><tr>
+          <th>#</th><th>Agent</th><th>Location</th>
+          <th>Calls</th><th>Talk (min)</th><th>Avg Call (min)</th>
+          <th>Lost</th><th>Lost %</th><th>Converted</th><th>Store Visits</th><th>Follow-ups</th>
+        </tr></thead>
+        <tbody id="act-tbl-body"></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
 </div><!-- /main -->
 
 <script>
@@ -771,6 +836,81 @@ function renderCoach(id, data, color) {
 }
 renderCoach('coach-imp',    D.coaching.improvements, '#3b82f6');
 renderCoach('coach-missed', D.coaching.missed,       '#f97316');
+
+// ── Activity data ──────────────────────────────────────────────────────────
+const ACT = {"agents":[{"name":"Rajeshwari Shekhawat","location":"Jaipur","calls":66,"talk_min":132.9,"avg_min":2.0,"lost":2,"lost_pct":3.0,"converted":0,"store_visit":20,"follow_up":25},{"name":"Tanishq","location":"Jaipur","calls":56,"talk_min":158.9,"avg_min":2.8,"lost":3,"lost_pct":5.4,"converted":0,"store_visit":11,"follow_up":23},{"name":"Rachit","location":"Udaipur","calls":55,"talk_min":154.0,"avg_min":2.8,"lost":3,"lost_pct":5.5,"converted":0,"store_visit":7,"follow_up":39},{"name":"Kunal Aithani","location":"Jaipur","calls":43,"talk_min":151.6,"avg_min":3.5,"lost":3,"lost_pct":7.0,"converted":1,"store_visit":9,"follow_up":15},{"name":"Sachin Gera","location":"Jaipur","calls":40,"talk_min":171.7,"avg_min":4.3,"lost":2,"lost_pct":5.0,"converted":0,"store_visit":10,"follow_up":17},{"name":"Mayank Vyas","location":"Udaipur","calls":37,"talk_min":205.0,"avg_min":5.5,"lost":4,"lost_pct":10.8,"converted":0,"store_visit":9,"follow_up":15},{"name":"Labhansh","location":"Jaipur","calls":36,"talk_min":150.2,"avg_min":4.2,"lost":2,"lost_pct":5.6,"converted":0,"store_visit":4,"follow_up":17},{"name":"Manish","location":"Jaipur","calls":35,"talk_min":121.2,"avg_min":3.5,"lost":3,"lost_pct":8.6,"converted":1,"store_visit":5,"follow_up":15},{"name":"Vishal Tak","location":"Udaipur","calls":31,"talk_min":113.0,"avg_min":3.6,"lost":1,"lost_pct":3.2,"converted":0,"store_visit":3,"follow_up":14},{"name":"Zahid","location":"Jaipur","calls":30,"talk_min":110.6,"avg_min":3.7,"lost":2,"lost_pct":6.7,"converted":0,"store_visit":5,"follow_up":17},{"name":"Abhishek Choubey","location":"Udaipur","calls":29,"talk_min":86.1,"avg_min":3.0,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":3,"follow_up":18},{"name":"Dushyant Singh","location":"Jaipur","calls":24,"talk_min":85.0,"avg_min":3.5,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":4,"follow_up":9},{"name":"Anushree","location":"Udaipur","calls":23,"talk_min":43.7,"avg_min":1.9,"lost":7,"lost_pct":30.4,"converted":0,"store_visit":0,"follow_up":12},{"name":"Nithin Belliappa PK","location":"Bangalore","calls":23,"talk_min":97.8,"avg_min":4.3,"lost":0,"lost_pct":0.0,"converted":1,"store_visit":4,"follow_up":8},{"name":"Sambhav Mehta","location":"Udaipur","calls":21,"talk_min":64.4,"avg_min":3.1,"lost":1,"lost_pct":4.8,"converted":1,"store_visit":3,"follow_up":11},{"name":"Sachin","location":"Jaipur","calls":20,"talk_min":73.3,"avg_min":3.7,"lost":2,"lost_pct":10.0,"converted":0,"store_visit":0,"follow_up":14},{"name":"K Babu","location":"HSR Layout","calls":19,"talk_min":82.1,"avg_min":4.3,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":1,"follow_up":12},{"name":"Sambhav","location":"Udaipur","calls":18,"talk_min":29.2,"avg_min":1.6,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":0,"follow_up":12},{"name":"Utkarsh","location":"Udaipur","calls":18,"talk_min":53.9,"avg_min":3.0,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":0,"follow_up":8},{"name":"Siddhartha Sharma","location":"Udaipur","calls":17,"talk_min":53.3,"avg_min":3.1,"lost":1,"lost_pct":5.9,"converted":0,"store_visit":3,"follow_up":5},{"name":"Anushree Jain","location":"Udaipur","calls":16,"talk_min":49.6,"avg_min":3.1,"lost":1,"lost_pct":6.2,"converted":0,"store_visit":0,"follow_up":8},{"name":"Tapish","location":"Jaipur","calls":14,"talk_min":33.8,"avg_min":2.4,"lost":2,"lost_pct":14.3,"converted":0,"store_visit":0,"follow_up":8},{"name":"Tapish Shekhawat","location":"Jaipur","calls":14,"talk_min":45.0,"avg_min":3.2,"lost":1,"lost_pct":7.1,"converted":0,"store_visit":3,"follow_up":8},{"name":"Gunjan","location":"Udaipur","calls":12,"talk_min":41.2,"avg_min":3.4,"lost":2,"lost_pct":16.7,"converted":0,"store_visit":0,"follow_up":8},{"name":"Nitesh Kaushik","location":"Jaipur","calls":11,"talk_min":68.3,"avg_min":6.2,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":2,"follow_up":6},{"name":"Aman","location":"Jaipur","calls":10,"talk_min":68.5,"avg_min":6.8,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":2,"follow_up":4},{"name":"Ronak Mohanty","location":"Bangalore","calls":10,"talk_min":48.9,"avg_min":4.9,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":3,"follow_up":6},{"name":"Hardik Audichya","location":"Udaipur","calls":9,"talk_min":30.7,"avg_min":3.4,"lost":1,"lost_pct":11.1,"converted":0,"store_visit":1,"follow_up":6},{"name":"Chandrima","location":"Bangalore","calls":8,"talk_min":59.3,"avg_min":7.4,"lost":1,"lost_pct":12.5,"converted":0,"store_visit":1,"follow_up":2},{"name":"Kajal K","location":"Udaipur","calls":8,"talk_min":34.4,"avg_min":4.3,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":1,"follow_up":7},{"name":"Anjali Menon","location":"Bangalore","calls":7,"talk_min":23.4,"avg_min":3.3,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":1,"follow_up":4},{"name":"Kuldeep","location":"Jaipur","calls":7,"talk_min":27.9,"avg_min":4.0,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":1,"follow_up":4},{"name":"Subhra","location":"Bangalore","calls":7,"talk_min":21.5,"avg_min":3.1,"lost":3,"lost_pct":42.9,"converted":0,"store_visit":0,"follow_up":3},{"name":"Subhra Toppo","location":"Bangalore","calls":6,"talk_min":25.5,"avg_min":4.2,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":0,"follow_up":5},{"name":"Siddhartha","location":"Udaipur","calls":5,"talk_min":9.0,"avg_min":1.8,"lost":2,"lost_pct":40.0,"converted":0,"store_visit":0,"follow_up":1},{"name":"Mayank","location":"Udaipur","calls":4,"talk_min":11.8,"avg_min":3.0,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":0,"follow_up":2},{"name":"Priyanka","location":"HSR Layout","calls":4,"talk_min":14.7,"avg_min":3.7,"lost":2,"lost_pct":50.0,"converted":0,"store_visit":1,"follow_up":0},{"name":"Gunjan Joshi","location":"Udaipur","calls":2,"talk_min":6.2,"avg_min":3.1,"lost":2,"lost_pct":100.0,"converted":0,"store_visit":0,"follow_up":0},{"name":"Ronak","location":"Bangalore","calls":2,"talk_min":14.4,"avg_min":7.2,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":0,"follow_up":1},{"name":"Anamika","location":"HSR Layout","calls":1,"talk_min":5.2,"avg_min":5.2,"lost":0,"lost_pct":0.0,"converted":0,"store_visit":0,"follow_up":1}],"daily_dates":["Oct 1","Oct 2","Oct 3"],"daily_calls":[280,296,222],"daily_lost":[37,6,10],"daily_talk":[960.4,992.8,824.0]};
+
+// KPI cards
+document.getElementById('act-kpi-calls').textContent = ACT.daily_calls.reduce((a,b)=>a+b,0);
+document.getElementById('act-kpi-talk').textContent   = Math.round(ACT.daily_talk.reduce((a,b)=>a+b,0)) + ' min';
+document.getElementById('act-kpi-lost').textContent   = ACT.daily_lost.reduce((a,b)=>a+b,0);
+document.getElementById('act-kpi-top').textContent    = ACT.agents[0].name.split(' ')[0] + ' (' + ACT.agents[0].calls + ')';
+
+// Top-20 agents by calls
+const top20 = ACT.agents.slice(0,20);
+new Chart(document.getElementById('c-act-calls'), {
+  type:'bar',
+  data:{ labels: top20.map(a=>a.name), datasets:[{ data: top20.map(a=>a.calls), backgroundColor: top20.map(a=>locColor(a.location)), borderRadius:4, borderWidth:0 }] },
+  options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{ grid:{color:'rgba(46,49,71,.4)'} }, y:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+});
+
+// Top-20 by talk time
+const top20t = [...ACT.agents].sort((a,b)=>b.talk_min-a.talk_min).slice(0,20);
+new Chart(document.getElementById('c-act-talk'), {
+  type:'bar',
+  data:{ labels: top20t.map(a=>a.name), datasets:[{ data: top20t.map(a=>a.talk_min), backgroundColor: top20t.map(a=>locColor(a.location)), borderRadius:4, borderWidth:0 }] },
+  options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{ grid:{color:'rgba(46,49,71,.4)'} }, y:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+});
+
+// Lost calls absolute — agents with any lost calls
+const lostAgents = ACT.agents.filter(a=>a.lost>0).sort((a,b)=>b.lost-a.lost);
+new Chart(document.getElementById('c-act-lost-abs'), {
+  type:'bar',
+  data:{ labels: lostAgents.map(a=>a.name), datasets:[{ data: lostAgents.map(a=>a.lost), backgroundColor: lostAgents.map(a=>a.lost>=5?'#ef4444':a.lost>=3?'#f97316':'#eab308'), borderRadius:4, borderWidth:0 }] },
+  options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{ grid:{color:'rgba(46,49,71,.4)'} }, y:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+});
+
+// Lost rate % — agents with 5+ calls
+const lostPct = ACT.agents.filter(a=>a.calls>=5&&a.lost>0).sort((a,b)=>b.lost_pct-a.lost_pct);
+new Chart(document.getElementById('c-act-lost-pct'), {
+  type:'bar',
+  data:{ labels: lostPct.map(a=>a.name), datasets:[{ data: lostPct.map(a=>a.lost_pct), backgroundColor: lostPct.map(a=>a.lost_pct>=20?'#ef4444':a.lost_pct>=10?'#f97316':'#eab308'), borderRadius:4, borderWidth:0 }] },
+  options:{ indexAxis:'y', plugins:{legend:{display:false}}, scales:{ x:{ max:105, ticks:{callback:v=>v+'%'}, grid:{color:'rgba(46,49,71,.4)'} }, y:{ grid:{display:false}, ticks:{font:{size:10}} } } }
+});
+
+// Daily trend
+new Chart(document.getElementById('c-act-daily'), {
+  type:'bar',
+  data:{
+    labels: ACT.daily_dates,
+    datasets:[
+      { label:'Total Calls', data: ACT.daily_calls, backgroundColor:'#3b82f6', borderRadius:4, yAxisID:'y' },
+      { label:'Lost Calls',  data: ACT.daily_lost,  backgroundColor:'#ef4444', borderRadius:4, yAxisID:'y' },
+      { label:'Talk (min)',  data: ACT.daily_talk,  type:'line', borderColor:'#f97316', borderWidth:2, pointRadius:4, fill:false, yAxisID:'y2' }
+    ]
+  },
+  options:{ plugins:{ legend:{ labels:{ boxWidth:10, font:{size:11} } } },
+    scales:{ y:{ grid:{color:'rgba(46,49,71,.4)'}, title:{display:true,text:'Calls'} }, y2:{ position:'right', grid:{display:false}, title:{display:true,text:'Talk (min)'} } } }
+});
+
+// Activity table
+const actBody = document.getElementById('act-tbl-body');
+ACT.agents.forEach((a,i) => {
+  const lc = a.lost_pct>=20?'var(--red)':a.lost_pct>=10?'var(--accent)':a.lost_pct>0?'var(--yellow)':'var(--muted)';
+  actBody.innerHTML += `<tr>
+    <td style="color:var(--dim)">${i+1}</td>
+    <td style="font-weight:600">${a.name}</td>
+    <td><span style="color:${locColor(a.location)};font-size:11px">${a.location}</span></td>
+    <td style="font-weight:600;color:var(--text)">${a.calls}</td>
+    <td style="color:var(--blue)">${a.talk_min}</td>
+    <td style="color:var(--muted)">${a.avg_min}</td>
+    <td style="color:${a.lost>0?'var(--red)':'var(--muted)'};font-weight:${a.lost>0?700:400}">${a.lost}</td>
+    <td style="color:${lc};font-weight:600">${a.lost_pct}%</td>
+    <td style="color:${a.converted>0?'var(--green)':'var(--muted)'}">${a.converted}</td>
+    <td style="color:var(--green)">${a.store_visit}</td>
+    <td style="color:var(--blue)">${a.follow_up}</td>
+  </tr>`;
+});
 
 // ── Agents needing coaching ────────────────────────────────────────────────
 const dimNames = ['Opening','Discovery','Product','Objection','Closing','Empathy','Clarity'];
