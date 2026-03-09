@@ -227,7 +227,7 @@ body{background:var(--bg);color:var(--text);font-family:'Inter',-apple-system,sa
     <button class="nav-btn" onclick="showTab('activity',this)">
       <span class="nav-icon">📋</span> Activity Dashboard
     </button>
-    <button class="nav-btn" onclick="showTab('calldetail',this)">
+    <button class="nav-btn" onclick="showTab('calldetail',this);filterCalls()">
       <span class="nav-icon">🔍</span> Call Detail
     </button>
   </div>
@@ -1133,17 +1133,7 @@ function toggleCall(id) {
   el.classList.toggle('open');
 }
 
-// Default: show negative calls on load
-document.addEventListener('DOMContentLoaded', function() {
-  // already handled by filterCalls on tab open
-});
 
-// Run filter on tab switch
-const _origShowTab = showTab;
-function showTab(id, btn) {
-  _origShowTab(id, btn);
-  if (id === 'calldetail') filterCalls();
-}
 
 </script>
 </body>
