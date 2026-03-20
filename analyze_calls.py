@@ -26,23 +26,29 @@ Usage:
 """
 
 import os, sys, json, re, glob, argparse
+from json_repair import repair_json
 from pathlib import Path
 from datetime import datetime
 from collections import Counter, defaultdict
+
+from system_prompt import get_claude_cached_system
+from agents import resolve_agent
 
 # ── Config ────────────────────────────────────────────────────────────────────
 BASE_DIR        = "/home/user/Documents/AI/SalesScorecard"
 TRANSCRIPTS_DIR = os.path.join(BASE_DIR, "transcripts")
 ANALYSIS_DIR    = os.path.join(BASE_DIR, "analysis")
 KEY_FILE        = os.path.join(BASE_DIR, "anthropic_key.txt")
-MODEL           = "claude-sonnet-4-6"
-MIN_WORDS       = 20    # skip near-empty calls
+# OPENAI_KEY_FILE = os.path.join(BASE_DIR, "OpenAI_Woodenstreet_key")  # OpenAI — commented out
+MODEL           = "claude-3-haiku-20240307"
+MIN_WORDS       = 100   # skip near-empty calls (< 100 words = noise/wrong number/dropped)
 # ─────────────────────────────────────────────────────────────────────────────
 
 
 # ── API key ───────────────────────────────────────────────────────────────────
 def load_api_key() -> str:
     key = os.environ.get("ANTHROPIC_API_KEY", "").strip()
+    # key = os.environ.get("OPENAI_API_KEY", "").strip()  # OpenAI — commented out
     if key:
         return key
     if os.path.isfile(KEY_FILE):
@@ -50,14 +56,15 @@ def load_api_key() -> str:
         if key:
             return key
     print("ERROR: No Anthropic API key found.")
-    print(f"  Option 1: export ANTHROPIC_API_KEY=your_key")
+    print("  Option 1: export ANTHROPIC_API_KEY=your_key")
     print(f"  Option 2: save your key to: {KEY_FILE}")
     sys.exit(1)
 
 
 # ── Filename metadata parser ──────────────────────────────────────────────────
 def parse_filename(filepath: str) -> dict:
-    """Extract timestamp, agent name, location, phone from filename."""
+    """Extract timestamp, agent full name, team, location, phone from filename.
+    Uses agents.py lookup to resolve short names to full agent details."""
     stem = Path(filepath).stem.replace("_diarized", "")
 
     ts_match = re.match(r"(\d{8})-(\d{6})", stem)
@@ -66,20 +73,23 @@ def parse_filename(filepath: str) -> dict:
         d, t = ts_match.group(1), ts_match.group(2)
         timestamp = f"{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}:{t[2:4]}:{t[4:]}"
 
-    agent_match = re.search(r"BD Sales - (.+?)-all", stem)
-    agent_name, location = None, None
-    if agent_match:
-        parts = agent_match.group(1).strip().rsplit(" ", 1)
-        agent_name = parts[0] if len(parts) >= 1 else None
-        location   = parts[1] if len(parts) == 2 else None
-
     phone_match = re.search(r"_(\d{8,15})_", stem)
     phone = phone_match.group(1) if phone_match else None
 
+    # Extract short name from filename e.g. "BD Sales - Sachin JPR"
+    agent_match = re.search(r"BD Sales - (.+?)-all", stem)
+    short_name = agent_match.group(1).strip() if agent_match else None
+
+    # Resolve to full agent details via lookup table
+    agent_info = resolve_agent(short_name)
+
     return {
-        "timestamp":     timestamp,
-        "agent_name":    agent_name,
-        "location":      location,
+        "timestamp":      timestamp,
+        "agent_name":     agent_info["full_name"],
+        "agent_short":    short_name,
+        "location":       agent_info["location"],
+        "team":           agent_info.get("team", "BD Sales"),
+        "agent_status":   agent_info.get("status", "Unknown"),
         "customer_phone": phone,
     }
 
@@ -88,69 +98,10 @@ def parse_filename(filepath: str) -> dict:
 def format_transcript(turns: list) -> str:
     """Format speaker turns as readable AGENT / CUSTOMER dialogue."""
     lines = []
-    # Determine which speaker label maps to agent vs customer
-    # (SPEAKER_00 is typically the agent who answers first)
     for t in turns:
         role = "AGENT" if t["speaker"] == "SPEAKER_00" else "CUSTOMER"
         lines.append(f"{role}: {t['text']}")
     return "\n".join(lines)
-
-
-# ── Per-call analysis prompt ──────────────────────────────────────────────────
-PER_CALL_PROMPT = """\
-You are an expert sales quality analyst for WoodenStreet, an Indian furniture brand.
-Analyze the call transcript below and return a JSON analysis.
-
-Context: WoodenStreet agents handle inbound/outbound calls for store visits, product
-queries, complaints, returns, order tracking, and sales (BD = Business Development).
-
-Transcript:
-{transcript}
-
-Return ONLY valid JSON with this exact structure (no markdown, no extra text):
-{{
-  "call_summary": "2-3 sentence factual summary",
-  "customer_intent": "buying | browsing | complaint | return_exchange | delivery_query | info_query | store_visit | other",
-  "customer_need": "one sentence describing what the customer specifically wanted",
-  "customer_sentiment": "positive | neutral | frustrated | angry | satisfied",
-  "sentiment_trajectory": "stable_positive | stable_neutral | stable_negative | improved | declined | mixed",
-
-  "conversation_flow": {{
-    "opening":          "good | average | poor",
-    "needs_discovery":  "good | average | poor | skipped",
-    "product_pitch":    "good | average | poor | not_applicable",
-    "objection_handling": "good | average | poor | no_objections",
-    "closing":          "good | average | poor | not_attempted"
-  }},
-
-  "objections_raised": ["list each objection the customer raised"],
-  "objection_responses": "brief note on how agent responded to objections",
-
-  "agent_scores": {{
-    "opening_greeting":   <1-10>,
-    "needs_discovery":    <1-10>,
-    "product_knowledge":  <1-10>,
-    "objection_handling": <1-10>,
-    "closing_attempt":    <1-10>,
-    "empathy_tone":       <1-10>
-  }},
-
-  "outcome": "converted | follow_up_scheduled | lost | support_resolved | no_answer | unclear",
-  "outcome_reasoning": "one sentence explaining why",
-
-  "winning_moments": ["concrete things the agent did well — quote or describe"],
-  "losing_moments":  ["concrete things the agent missed or did poorly"],
-  "missed_opportunities": ["upsell, cross-sell, or closing chances the agent let pass"],
-
-  "customer_pain_points": ["specific friction points, complaints, or frustrations"],
-  "feature_requests": ["any product or service features the customer asked about"],
-  "pricing_sensitivity": "high | medium | low | not_discussed",
-  "delivery_complaint": true or false,
-
-  "coaching_cues": ["3-5 specific, actionable coaching tips for this agent"],
-  "key_quote_agent":    "most revealing thing the agent said (exact quote)",
-  "key_quote_customer": "most revealing thing the customer said (exact quote)"
-}}"""
 
 
 # ── Aggregate synthesis prompt ────────────────────────────────────────────────
@@ -158,7 +109,8 @@ AGGREGATE_PROMPT = """\
 You are analyzing a batch of WoodenStreet sales call analyses to produce team-level insights.
 
 Below is a JSON summary of all {n} analyzed calls including agent scores, outcomes,
-objections, pain points, winning moments, and losing moments.
+objections, pain points, winning moments, losing moments, and customer voice data
+(what customers asked for, issues they raised, and gaps they experienced).
 
 Data:
 {data}
@@ -167,20 +119,23 @@ Return ONLY valid JSON with this structure (no markdown):
 {{
   "executive_summary": "3-4 sentence overview of the team's performance",
 
+  "top_10_customer_asks": ["top ask 1", "top ask 2", "top ask 3", "top ask 4", "top ask 5"],
+  "top_10_issues": ["top issue 1", "top issue 2", "top issue 3", "top issue 4", "top issue 5"],
+  "top_10_gaps": ["top gap 1", "top gap 2", "top gap 3", "top gap 4", "top gap 5"],
+
   "top_winning_patterns": [
-    {{"pattern": "description", "why_it_works": "explanation", "example": "from data"}}
+    {{"pattern": "description", "why_it_works": "short explanation", "example": "brief example"}}
   ],
   "top_losing_patterns": [
-    {{"pattern": "description", "impact": "what it costs", "example": "from data"}}
+    {{"pattern": "description", "impact": "what it costs", "example": "brief example"}}
   ],
   "top_objections": [
-    {{"objection": "description", "frequency": "high/medium/low", "best_response": "suggested response"}}
+    {{"objection": "description", "frequency": "high/medium/low", "best_response": "short response"}}
   ],
-  "top_customer_pain_points": ["list of most common friction points"],
-  "revenue_leakage_signals": ["missed upsell/cross-sell patterns across calls"],
+  "revenue_leakage_signals": ["signal 1", "signal 2", "signal 3"],
 
   "what_to_teach_agents": [
-    {{"skill": "skill name", "why": "reason", "how": "specific training approach"}}
+    {{"skill": "skill name", "why": "reason", "how": "training approach"}}
   ],
   "sales_improvement_focus": [
     {{"area": "focus area", "current_state": "what's happening", "target": "what good looks like"}}
@@ -192,18 +147,108 @@ Return ONLY valid JSON with this structure (no markdown):
 }}"""
 
 
+# ── Schema normalizer (handles old and new analysis schemas) ──────────────────
+def normalize_analysis(analysis: dict) -> dict:
+    """
+    Bridge between:
+      - Old schema  : agent_scores, outcome, winning_moments, etc.
+      - New schema  : agent_scorecard (WoodenStreet BD Sales specific field names)
+    Returns a consistent dict for aggregate aggregation.
+    """
+    # ── New schema (WoodenStreet system_prompt.py — field names already match) ─
+    if "agent_scorecard" in analysis:
+        sc  = analysis.get("agent_scorecard", {})
+        int_= analysis.get("intent", {})
+        sen = analysis.get("sentiment", {})
+        out = analysis.get("call_outcome", {})
+        cv  = analysis.get("customer_voice", {})
+
+        # Map resolution_type → outcome bucket
+        res = out.get("resolution_type", "unclear")
+        outcome_map = {
+            "sale_converted":          "converted",
+            "store_visit_booked":      "follow_up_scheduled",
+            "follow_up_scheduled":     "follow_up_scheduled",
+            "complaint_resolved":      "support_resolved",
+            "partially_resolved":      "follow_up_scheduled",
+            "transferred":             "follow_up_scheduled",
+            "unresolved":              "lost",
+        }
+        outcome = outcome_map.get(res, "unclear")
+
+        coaching_tip = sc.get("coaching_tip", "")
+        missed_opp   = sc.get("missed_opportunity", "")
+
+        return {
+            "agent_scores": {
+                # Field names now match new schema directly — no remapping needed
+                "opening_greeting":    sc.get("opening_greeting", 0),
+                "needs_discovery":     sc.get("needs_discovery", 0),
+                "product_knowledge":   sc.get("product_knowledge", 0),
+                "objection_handling":  sc.get("objection_handling", 0),
+                "closing_attempt":     sc.get("closing_attempt", 0),
+                "empathy_tone":        sc.get("empathy_tone", 0),
+            },
+            "outcome":            outcome,
+            "customer_intent":    int_.get("primary_intent", "other"),
+            "customer_sentiment": sen.get("overall", "neutral"),
+            "winning_moments":    sc.get("strengths", []),
+            "losing_moments":     sc.get("improvement_areas", []),
+            "missed_opportunities": [missed_opp] if missed_opp else [],
+            "objections_raised":    [
+                f.get("description", "")
+                for f in analysis.get("red_flags", [])
+                if f.get("type") == "churn_risk"
+            ],
+            "customer_pain_points": sen.get("churn_signals", []),
+            "coaching_cues":        [coaching_tip] if coaching_tip else [],
+            "feature_requests":     [],
+            # Customer voice — new fields
+            "top_asks":              cv.get("top_asks", []),
+            "issues_raised":         cv.get("issues_raised", []),
+            "product_service_gaps":  cv.get("product_service_gaps", []),
+            "unmet_needs":           cv.get("unmet_needs", []),
+            "positive_feedback":     cv.get("positive_feedback", []),
+        }
+
+    # ── Old schema (PER_CALL_PROMPT based) — return as-is ───────────────────
+    return analysis
+
+
 # ── Claude API call ───────────────────────────────────────────────────────────
-def call_claude(prompt: str, client, max_tokens: int = 1800) -> dict:
+def call_claude(prompt: str, client, max_tokens: int = 4000,
+                system_content=None) -> dict:
     """Call Claude and parse JSON response."""
-    message = client.messages.create(
+    kwargs = dict(
         model=MODEL,
         max_tokens=max_tokens,
         messages=[{"role": "user", "content": prompt}],
     )
+    if system_content is not None:
+        kwargs["system"] = system_content
+
+    # --- OpenAI (commented out) ---
+    # response = client.chat.completions.create(
+    #     model=MODEL, max_tokens=max_tokens,
+    #     messages=[{"role": "user", "content": prompt}],
+    # )
+    # raw = response.choices[0].message.content.strip()
+
+    # --- Anthropic ---
+    message = client.messages.create(**kwargs)
     raw = message.content[0].text.strip()
+
     raw = re.sub(r"^```[a-z]*\n?", "", raw)
     raw = re.sub(r"\n?```$", "", raw)
-    return json.loads(raw)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError:
+        # Truncated or malformed JSON — attempt repair
+        repaired = repair_json(raw, return_objects=True)
+        if isinstance(repaired, dict) and repaired:
+            return repaired
+        print("  WARNING: Could not parse JSON response, returning empty dict")
+        return {}
 
 
 # ── Per-call processing ───────────────────────────────────────────────────────
@@ -213,16 +258,14 @@ def analyze_one(json_path: str, client) -> dict | None:
 
     meta  = data["metadata"]
     turns = data["turns"]
-
-    if meta["total_words"] < MIN_WORDS:
-        print(f"  SKIP — too short ({meta['total_words']} words)", flush=True)
-        return None
-
     transcript_text = format_transcript(turns)
     filename_meta   = parse_filename(json_path)
 
+    # System prompt is cached — only billed once per cache TTL (~5 min)
     analysis = call_claude(
-        PER_CALL_PROMPT.format(transcript=transcript_text), client
+        f"Analyze this call transcript:\n\n{transcript_text}",
+        client,
+        system_content=get_claude_cached_system(),
     )
 
     return {
@@ -256,11 +299,13 @@ def build_aggregate_report(all_results: list, client) -> dict:
         loc   = r["call_metadata"].get("location") or ""
         key   = f"{agent} ({loc})" if loc else agent
         agent_calls[key] += 1
-        scores = r["analysis"].get("agent_scores", {})
+
+        norm   = normalize_analysis(r["analysis"])
+        scores = norm.get("agent_scores", {})
         for dim, score in scores.items():
             if isinstance(score, (int, float)):
                 agent_scores[key][dim].append(score)
-        agent_outcomes[key].append(r["analysis"].get("outcome", "unclear"))
+        agent_outcomes[key].append(norm.get("outcome", "unclear"))
 
     scorecards = {}
     for agent, dims in agent_scores.items():
@@ -275,18 +320,23 @@ def build_aggregate_report(all_results: list, client) -> dict:
         ) if outcomes else 0
 
     # ── Distributions ──
-    intents   = Counter(r["analysis"].get("customer_intent")  for r in valid)
-    outcomes  = Counter(r["analysis"].get("outcome")          for r in valid)
-    sentiments= Counter(r["analysis"].get("customer_sentiment") for r in valid)
+    intents    = Counter(normalize_analysis(r["analysis"]).get("customer_intent")   for r in valid)
+    outcomes   = Counter(normalize_analysis(r["analysis"]).get("outcome")           for r in valid)
+    sentiments = Counter(normalize_analysis(r["analysis"]).get("customer_sentiment") for r in valid)
 
     # ── Collect patterns for LLM synthesis ──
-    wins     = [m for r in valid for m in r["analysis"].get("winning_moments", [])]
-    losses   = [m for r in valid for m in r["analysis"].get("losing_moments", [])]
-    missed   = [m for r in valid for m in r["analysis"].get("missed_opportunities", [])]
-    objs     = [o for r in valid for o in r["analysis"].get("objections_raised", [])]
-    pains    = [p for r in valid for p in r["analysis"].get("customer_pain_points", [])]
-    cues     = [c for r in valid for c in r["analysis"].get("coaching_cues", [])]
-    features = [f for r in valid for f in r["analysis"].get("feature_requests", [])]
+    norms    = [normalize_analysis(r["analysis"]) for r in valid]
+    wins     = [m for n in norms for m in n.get("winning_moments", [])]
+    losses   = [m for n in norms for m in n.get("losing_moments", [])]
+    missed   = [m for n in norms for m in n.get("missed_opportunities", [])]
+    objs     = [o for n in norms for o in n.get("objections_raised", [])]
+    pains    = [p for n in norms for p in n.get("customer_pain_points", [])]
+    cues     = [c for n in norms for c in n.get("coaching_cues", [])]
+    # Customer voice signals
+    top_asks = [a for n in norms for a in n.get("top_asks", [])]
+    issues   = [i for n in norms for i in n.get("issues_raised", [])]
+    gaps     = [g for n in norms for g in n.get("product_service_gaps", [])]
+    unmet    = [u for n in norms for u in n.get("unmet_needs", [])]
 
     # Compact summary for synthesis prompt (avoid huge token count)
     synthesis_input = {
@@ -295,13 +345,17 @@ def build_aggregate_report(all_results: list, client) -> dict:
         "outcome_distribution": dict(outcomes),
         "intent_distribution": dict(intents),
         "sentiment_distribution": dict(sentiments),
-        "winning_moments_sample":  wins[:80],
-        "losing_moments_sample":   losses[:80],
-        "missed_opportunities":    missed[:60],
-        "objections_raised":       objs[:100],
-        "customer_pain_points":    pains[:80],
-        "coaching_cues":           cues[:80],
-        "feature_requests":        features[:40],
+        "winning_moments_sample":  wins[:60],
+        "losing_moments_sample":   losses[:60],
+        "missed_opportunities":    missed[:50],
+        "objections_raised":       objs[:80],
+        "customer_pain_points":    pains[:60],
+        "coaching_cues":           cues[:60],
+        # Customer voice — top asks, issues, gaps
+        "customer_top_asks":       top_asks[:100],
+        "customer_issues_raised":  issues[:100],
+        "product_service_gaps":    gaps[:100],
+        "unmet_needs":             unmet[:60],
     }
 
     print("  Calling Claude for pattern synthesis ...", flush=True)
@@ -311,21 +365,21 @@ def build_aggregate_report(all_results: list, client) -> dict:
             data=json.dumps(synthesis_input, indent=2)
         ),
         client,
-        max_tokens=3000,
+        max_tokens=4096,
     )
 
     return {
-        "generated_at":       datetime.now().isoformat(timespec="seconds"),
-        "total_calls":        len(valid),
-        "agent_scorecards":   scorecards,
+        "generated_at":           datetime.now().isoformat(timespec="seconds"),
+        "total_calls":            len(valid),
+        "agent_scorecards":       scorecards,
         "intent_distribution":    dict(intents),
         "outcome_distribution":   dict(outcomes),
         "sentiment_distribution": dict(sentiments),
-        "raw_objections":     objs,
-        "raw_pain_points":    pains,
-        "raw_wins":           wins,
-        "raw_losses":         losses,
-        "synthesis":          synthesis,
+        "raw_objections":         objs,
+        "raw_pain_points":        pains,
+        "raw_wins":               wins,
+        "raw_losses":             losses,
+        "synthesis":              synthesis,
     }
 
 
@@ -374,6 +428,18 @@ def save_report_txt(report: dict, path: str):
             f"{sc.get('conversion_rate',0):>5.1f}% "
             f"{sc.get('total_calls',0):>5}"
         )
+
+    lines += ["", "── TOP 10 CUSTOMER ASKS " + "─" * 45]
+    for i, item in enumerate(s.get("top_10_customer_asks", []), 1):
+        lines.append(f"  {i:2}. {item}")
+
+    lines += ["", "── TOP 10 CUSTOMER ISSUES " + "─" * 43]
+    for i, item in enumerate(s.get("top_10_issues", []), 1):
+        lines.append(f"  {i:2}. {item}")
+
+    lines += ["", "── TOP 10 PRODUCT / SERVICE GAPS " + "─" * 36]
+    for i, item in enumerate(s.get("top_10_gaps", []), 1):
+        lines.append(f"  {i:2}. {item}")
 
     lines += ["", "── TOP WINNING PATTERNS " + "─" * 45]
     for i, p in enumerate(s.get("top_winning_patterns", []), 1):
@@ -439,19 +505,37 @@ def main():
     api_key = load_api_key()
     client  = anthropic.Anthropic(api_key=api_key)
 
+    # --- OpenAI (commented out) ---
+    # import openai
+    # api_key = load_api_key()
+    # client  = openai.OpenAI(api_key=api_key)
+
     # Collect transcript files
     all_jsons = sorted(glob.glob(os.path.join(TRANSCRIPTS_DIR, "*_diarized.json")))
     print(f"\nFound {len(all_jsons)} transcript files in {TRANSCRIPTS_DIR}")
 
     if not args.report_only:
-        # Determine which to process
+        # Determine which to process — filter out too-short files upfront
         to_process = []
+        skipped_short = 0
         for jf in all_jsons:
             stem     = Path(jf).stem.replace("_diarized", "")
             out_path = os.path.join(ANALYSIS_DIR, f"{stem}_analysis.json")
             if os.path.exists(out_path) and not args.reanalyze:
                 continue
+            # Check word count before queuing — avoid API cost on noise calls
+            try:
+                with open(jf) as f:
+                    meta_words = json.load(f)["metadata"]["total_words"]
+                if meta_words < MIN_WORDS:
+                    skipped_short += 1
+                    continue
+            except Exception:
+                pass  # if unreadable, let analyze_one handle it
             to_process.append((jf, out_path))
+
+        if skipped_short:
+            print(f"Skipped {skipped_short} files with < {MIN_WORDS} words (noise/dropped calls)")
 
         if args.limit:
             to_process = to_process[:args.limit]

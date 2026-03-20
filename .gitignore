@@ -5,14 +5,28 @@ assemblyai_key
 assemblyai_key.txt
 huggingFaceToken*.txt
 anthropic_key.txt
+anthropic_api_key
 *_key.txt
 *_token.txt
+github_token.txt
+OpenAI*
+ozonetel_creds.json
 
 # Audio files & generated transcripts
 recording/
 transcripts/
 analysis/
 *_16k.wav
+
+# Ozonetel archive — MP3s, metadata CSVs, stats JSONs (too heavy)
+ozonetel_archive/
+ozonetel_test/
+
+# Binary/image assets
+*.jpeg
+*.jpg
+*.png
+*.xlsx
 
 # Python cache
 __pycache__/
