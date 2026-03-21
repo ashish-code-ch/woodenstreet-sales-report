@@ -309,21 +309,21 @@ def stage_analyse(logger: PipelineLogger, from_date: str = None) -> dict:
     }
 
 
-def stage_export(logger: PipelineLogger) -> dict:
-    logger.section("STAGE 3 — EXPORT TO CSV  (Power BI ready)")
+def stage_export(logger: PipelineLogger, target_date: str = None) -> dict:
+    logger.section("STAGE 3 — EXPORT TO CSV + HTML  (Power BI + GitHub Pages)")
 
-    ok = run_stage(
-        os.path.join(BASE_DIR, "export_to_csv.py"),
-        [],
-        logger,
-    )
+    ok_csv = run_stage(os.path.join(BASE_DIR, "export_to_csv.py"), [], logger)
+
+    extra_args = ["--date", target_date] if target_date else []
+    ok_html = run_stage(os.path.join(BASE_DIR, "generate_report.py"), extra_args, logger)
 
     csv_files = glob.glob(os.path.join(EXPORTS_DIR, "*.csv"))
     return {
         "stage":      "export",
-        "status":     "ok" if ok else "error",
+        "status":     "ok" if (ok_csv and ok_html) else "error",
         "csv_files":  [os.path.basename(f) for f in csv_files],
         "export_dir": EXPORTS_DIR,
+        "html_ok":    ok_html,
     }
 
 
@@ -523,7 +523,7 @@ def main():
             results.append(stage_analyse(logger, from_date=target_date))
 
         if args.stage in (None, "export"):
-            results.append(stage_export(logger))
+            results.append(stage_export(logger, target_date=target_date))
 
         if args.stage in (None, "push"):
             results.append(stage_push(logger, target_date=target_date))

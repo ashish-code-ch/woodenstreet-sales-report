@@ -321,7 +321,7 @@ def analyze_one(json_path: str, client) -> dict | None:
     analysis = call_claude(
         f"Analyze this call transcript:\n\n{transcript_text}",
         client,
-        max_tokens=2000,
+        max_tokens=2500,
         system_content=system_content,
     )
     return build_result_dict(json_path, fname_meta, meta, analysis, prompt_version)
@@ -348,7 +348,7 @@ def build_batch_requests(to_process):
             "custom_id": custom_id,
             "params": {
                 "model":    MODEL,
-                "max_tokens": 2000,
+                "max_tokens": 2500,
                 "system":   system_content,
                 "messages": [{"role": "user",
                               "content": f"Analyze this call transcript:\n\n{transcript_text}"}],
