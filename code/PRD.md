@@ -1,7 +1,7 @@
 # Product Requirements Document
 ## WoodenStreet Sales Scorecard — AI-Powered Call Intelligence Platform
 
-**Version:** 1.2
+**Version:** 1.3
 **Date:** 2026-03-21
 **Owner:** Ashish
 **Status:** Active — Implementation In Progress
@@ -53,7 +53,10 @@ If every call is scored overnight, managers can focus their morning on the 20% o
 - Per-call AI analysis: scoring, intent detection, sentiment, escalation flags
 - Team-level pattern synthesis: winning/losing behaviors, top objections
 - Export to 5 structured CSVs across monthly, quarterly, and master tiers
-- Live HTML dashboard published to GitHub Pages
+- Live HTML dashboard published to GitHub Pages (auto-pushed after every pipeline run)
+- Team-switched HTML report: BD Sales and Customer Support views via URL param
+- Operations dashboard: Ozonetel-powered hourly patterns, queue drops, per-agent ops
+- Call recording drill-through: inline audio player linked from call detail view
 - Daily activity tracking: talk time vs 3-hour target, lost calls per agent
 
 ### 4.2 Out of Scope (v1)
@@ -133,16 +136,32 @@ Ozonetel PBX (call recordings + metadata)
     agent_scorecard.csv + daily_activity.csv (master only)
         │
         ▼
-[Reporting] exports/master/report.html → GitHub Pages
+[Stage 3b] generate_report.py  (--date YYYY-MM-DD)
+  - Read all analysis/{date}/*_analysis.json files
+  - Split records by team (BD Sales / Customer Support)
+  - Load Ozonetel metadata.csv for Operations metrics
+  - Build JS data objects: BD, CS, BD_ACT, CS_ACT, BD_CALLS, CS_CALLS, OPS
+  - Generate standalone index.html with team switcher (?team=bd / ?team=cs)
+  - Output: index.html (project root)
+        │
+        ▼
+[Stage 4] push to GitHub Pages
+  - Read token from github_token.txt
+  - Clone or pull woodenstreet-sales-report repo to /tmp/ws-report
+  - Copy index.html → repo root
+  - Copy source files → repo/code/ subfolder
+  - git commit + push
   - Auto-deployed to https://ashish-code-ch.github.io/woodenstreet-sales-report/
 ```
 
 ### 6.2 Orchestrator — pipeline.py
 
 The `pipeline.py` script is the single entry point for daily execution:
-- Runs Stage 0 → 1 → 2 → 3 sequentially with conditional skips
+- Runs Stage 0 → 1 → 2 → 3 → 4 sequentially with conditional skips
 - Stage 0 (fetch) defaults to yesterday; `--date` overrides
 - Stage 2 (analyse) passes `--batch --from-date` automatically
+- Stage 3 (export) runs `export_to_csv.py` then `generate_report.py`
+- Stage 4 (push) is **automatic and mandatory** — always runs after export
 - Persists execution history to `pipeline_state.json` (last 30 runs)
 - Logs all output to timestamped files in `/logs/`
 - Returns exit code 0 (success) or 1 (any stage failed)
@@ -154,7 +173,8 @@ python pipeline.py --date 2026-03-19            # Full pipeline for specific dat
 python pipeline.py --stage fetch --date 2026-03-19  # Only fetch
 python pipeline.py --stage transcribe           # Only transcription
 python pipeline.py --stage analyse              # Only analysis (batch)
-python pipeline.py --stage export               # Only CSV export
+python pipeline.py --stage export               # Only CSV export + HTML + push
+python pipeline.py --stage push                 # Only push to GitHub Pages
 python pipeline.py --status                     # Show last run status
 ```
 
@@ -294,10 +314,49 @@ call_summary
 
 | ID | Requirement | Status |
 |----|-------------|--------|
-| R-01 | Generate standalone `report.html` with all insights (no external dependencies) | ✓ Done |
-| R-02 | Publish report to GitHub Pages after each pipeline run | Pending (manual step) |
+| R-01 | Generate standalone `index.html` with all insights (no external dependencies) | ✓ Done |
+| R-02 | Publish report to GitHub Pages after each pipeline run (Stage 4 — automatic) | ✓ Done |
 | R-03 | Power BI connects to `exports/master/` CSVs as daily-refreshed data source | ✓ Done |
-| R-04 | Report supports monthly and quarterly view switching | Planned v2 |
+| R-04 | Report team switcher: BD Sales vs Customer Support via `?team=bd` / `?team=cs` | ✓ Done |
+| R-05 | Operations Dashboard: Ozonetel-powered ops metrics (no Claude cost) | ✓ Done |
+| R-06 | Call recording drill-through: inline HTML5 audio player per call in Call Detail tab | ✓ Done |
+
+#### 7.5.1 HTML Report Tabs
+
+| Tab | Team | Contents |
+|-----|------|----------|
+| Overview | BD / CS | KPI cards, score distribution, sentiment, churn risk |
+| Dimensions | BD / CS | 7-dimension radar/bar charts, weakest dimensions |
+| Leaderboard | BD / CS | Agent rankings by overall score, top 5 highlights |
+| Heatmap | BD / CS | Agent × dimension grid with colour coding |
+| Activity | BD / CS | Daily call volume, outcomes, intents over time |
+| Call Detail | BD / CS | Per-call rows with expand → summary, scores, audio player |
+| Coaching | BD / CS | Per-agent coaching notes, improvement areas |
+| Operations | Both | Ozonetel metrics: queue drops, outbound no-pickup, hourly charts, per-agent ops |
+
+#### 7.5.2 Operations Dashboard (R-05)
+
+Sources `ozonetel_archive/{date}/metadata.csv` directly — no Claude analysis needed.
+
+**KPI metrics:**
+- Total / answered / unanswered call counts; answer rate
+- Avg hold time, wrapup time, time-to-answer
+- Agent-initiated hangup count and rate
+
+**Charts:**
+- Inbound queue drops by hour (customers who called and gave up before agent picked up)
+- Outbound no-pickup by hour (agent dialled, customer didn't answer)
+- Stacked hourly chart: answered vs unanswered vs total
+- Unanswered reasons donut
+- Dispositions horizontal bar
+- Disconnect type donut
+
+**Per-agent ops table:**
+- Daily avg talk time (minutes) with progress bar
+- Flag: `⚠ Low Talk` if daily avg < 180 min (3-hour target)
+- Flag: `Slow Wrapup` if avg wrapup > 120s
+- Flag: `High Hangups` if agent-initiated hangup rate > 30%
+- Flag: `Low Contact` if contact rate < 40% (outbound agents)
 
 ---
 
@@ -326,9 +385,9 @@ call_summary
 |---|---|---|
 | Anthropic Batch API | 50% off all tokens | Submit all calls in one batch request |
 | Prompt caching (BD + CS system prompts) | ~90% off system prompt tokens | 24K tokens cached at $0.03/MTok vs $0.25/MTok |
-| `max_tokens` reduced 4,000 → 2,000 | ~15% output saving | Average response fits in 1,500 tokens |
+| `max_tokens` reduced 4,000 → 2,500 | ~13% output saving | Average response fits in ~1,800 tokens (2,500 gives headroom) |
 | `MIN_WORDS` raised 100 → 150 | ~12% fewer API calls | Skips very short noise/dropped calls |
-| **Combined saving vs baseline** | **64% reduction** | $92/month → $34/month |
+| **Combined saving vs baseline** | **~62% reduction** | $92/month → ~$35/month |
 
 ### 8.3 Reliability
 - All stages are **idempotent** — re-running skips already-processed files
@@ -459,15 +518,17 @@ call_summary
 ```
 /home/user/Documents/AI/SalesScorecard/
 │
-├── pipeline.py                  # Orchestrator — runs all stages (0→1→2→3)
+├── pipeline.py                  # Orchestrator — runs all stages (0→1→2→3→4)
 ├── ozonetel_fetcher.py          # Stage 0: fetch + download from Ozonetel
 ├── transcribe_diarize.py        # Stage 1: Whisper large-v3 + pyannote
 ├── analyze_calls.py             # Stage 2: Claude Haiku scoring (batch + real-time)
 ├── export_to_csv.py             # Stage 3: JSON → monthly/quarterly/master CSVs
+├── generate_report.py           # Stage 3b: all analysis JSONs → standalone index.html
 ├── system_prompt_bd.py          # BD Sales prompt (bd_v1) — bump version if rubric changes
 ├── system_prompt_cs.py          # Customer Support prompt (cs_v1)
 ├── agents.py                    # Agent lookup: short name / W-ID → full details
 ├── serve.py                     # HTTP server + localhost.run tunnel
+├── index.html                   # Generated HTML report (overwritten each run)
 │
 ├── recording/
 │   └── {YYYY-MM-DD}/            # Symlinks to ozonetel_archive recordings
@@ -482,13 +543,12 @@ call_summary
 ├── exports/
 │   ├── {YYYY-MM}/               # Monthly CSVs (e.g. 2026-03/)
 │   ├── {YYYY-QN}/               # Quarterly CSVs (e.g. 2026-Q1/)
-│   └── master/                  # All-time union ← Power BI + GitHub Pages
+│   └── master/                  # All-time union ← Power BI connects here
 │       ├── calls.csv
 │       ├── customer_voice.csv
 │       ├── coaching.csv
 │       ├── agent_scorecard.csv
-│       ├── daily_activity.csv
-│       └── report.html
+│       └── daily_activity.csv
 │
 ├── ozonetel_archive/
 │   └── {YYYY-MM-DD}/
@@ -559,17 +619,16 @@ Team classification priority:
 
 | Gap | Impact | Status |
 |-----|--------|--------|
-| Report.html not auto-pushed to GitHub after pipeline run | Medium — manual step required | Pending |
 | Recordings stored locally only — no cloud backup | High — disk failure risk | Pending |
 | Agent lookup requires manual update when staff changes | Medium — stale data if not maintained | Pending |
 | `completeness_pct` shows ~80% due to talktime < 20s calls (not a real gap) | Low — confusing metric | Pending fix |
+| ~~Report.html not auto-pushed to GitHub after pipeline run~~ | ~~Medium~~ | ✓ Fixed v1.3 (Stage 4) |
 | ~~No retry logic if Claude API times out~~ | ~~Medium~~ | ✓ Fixed v1.1 |
 | ~~Flat folder structure mixed all dates~~ | ~~Medium~~ | ✓ Fixed v1.2 |
 | ~~Single prompt for BD + CS~~ | ~~High~~ | ✓ Fixed v1.1 |
 | ~~No batch API — expensive real-time calls~~ | ~~High~~ | ✓ Fixed v1.2 |
 
 ### 13.2 Planned Enhancements (v2+)
-- **Auto GitHub push** after each pipeline run
 - **Monthly/quarterly HTML report tabs** with period selector
 - **Agent coaching digest** — WhatsApp/email summary to team leads every morning
 - **Multi-date backfill** — run pipeline for a date range (e.g. last 7 days)
@@ -594,7 +653,8 @@ Team classification priority:
 | Stage 0 — Fetch | ~5 min | Downloads ~1,300 MP3s |
 | Stage 1 — Transcribe | ~11 hours | GPU sequential, runs overnight |
 | Stage 2 — Analyse (Batch) | ~15-30 min | ~900 calls, single batch submission |
-| Stage 3 — Export | ~1 min | Generates all tiers |
+| Stage 3 — Export | ~1 min | Generates all CSV tiers + index.html |
+| Stage 4 — Push | ~1 min | Pushes index.html to GitHub Pages |
 | **Total** | **Overnight** | Cron at 7 PM → report ready by 7 AM |
 
 > **Recommendation:** Move cron to 7 PM to allow transcription overnight. Current 7 AM cron works if previous day's transcription already completed.
@@ -623,5 +683,6 @@ Team classification priority:
 
 ---
 
-*Version 1.2 — Updated 2026-03-21. Reflects implementation state as of this date.*
+*Version 1.3 — Updated 2026-03-21. Reflects implementation state as of this date.*
+*Changes from v1.2: Stage 4 (GitHub push) added and made automatic; generate_report.py added; Operations Dashboard (R-05) added; call recording drill-through (R-06) added; team switcher (R-04) marked Done; max_tokens updated 2,000 → 2,500; directory structure updated; R-02 gap closed.*
 *Next review: After first successful daily cron run.*

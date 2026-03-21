@@ -511,19 +511,19 @@ PART 7 — OUTPUT JSON SCHEMA (return exactly this)
 
   "customer_voice": {
     "top_asks": [
-      "<specific thing the customer asked for — action, resolution, or information>"
+      "<SHORT category tag — 2-5 words max. Use standard tags like: Order Status, Delivery Reschedule, Refund Request, Replacement Part, Carpenter Visit, Complaint Escalation, Warranty Claim, Assembly Help, Invoice Copy, Return Request>"
     ],
     "issues_raised": [
-      "<problem or complaint the customer experienced — be concrete>"
+      "<SHORT category tag — 2-5 words max. Use standard tags like: Delivery Delay, Product Defect, Wrong Item, Carpenter No-Show, Repeat Complaint, No Response, Broken on Arrival, Poor Assembly, Billing Error>"
     ],
     "process_service_gaps": [
-      "<something WoodenStreet's operations or process failed to deliver>"
+      "<SHORT category tag — 2-5 words max. What WoodenStreet process failed. E.g.: No Proactive Update, Slow Escalation, Missed Callback, No Spare Parts, Long Carpenter Wait, Policy Unclear>"
     ],
     "unmet_needs": [
-      "<things customer hinted at but agent never addressed or offered>"
+      "<SHORT category tag — 2-5 words max. What agent could have offered but didn't. E.g.: Compensation Not Offered, No Follow-up Promised, No Escalation Offered, Resolution Timeline Missing>"
     ],
     "positive_feedback": [
-      "<anything the customer praised — rare but important to capture>"
+      "<SHORT category tag — 2-5 words max. E.g.: Agent Very Helpful, Issue Resolved Quickly, Clear Communication, Polite Agent>"
     ]
   },
 
