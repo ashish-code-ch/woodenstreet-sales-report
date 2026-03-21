@@ -43,6 +43,11 @@ GITHUB_USER     = "ashish-code-ch"
 GITHUB_REPO     = "woodenstreet-sales-report"
 GITHUB_TOKEN_FILE = os.path.join(BASE_DIR, "github_token.txt")
 
+# Set this once you create your S3 bucket for transcripts.
+# e.g. "https://ws-transcripts.s3.ap-south-1.amazonaws.com"
+# Leave empty to use local serve.py only.
+TRANSCRIPT_BASE_URL = ""
+
 # Source files to back up to GitHub (code subfolder in the report repo)
 SOURCE_FILES = [
     "pipeline.py", "analyze_calls.py", "transcribe_diarize.py",
@@ -315,6 +320,8 @@ def stage_export(logger: PipelineLogger, target_date: str = None) -> dict:
     ok_csv = run_stage(os.path.join(BASE_DIR, "export_to_csv.py"), [], logger)
 
     extra_args = ["--date", target_date] if target_date else []
+    if TRANSCRIPT_BASE_URL:
+        extra_args += ["--transcript-base-url", TRANSCRIPT_BASE_URL]
     ok_html = run_stage(os.path.join(BASE_DIR, "generate_report.py"), extra_args, logger)
 
     csv_files = glob.glob(os.path.join(EXPORTS_DIR, "*.csv"))
